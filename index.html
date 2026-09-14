@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>realme WVIS Sales Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="config.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">R</div>
+        <div>
+          <div class="brand-name">realme WVIS</div>
+          <div class="brand-sub">Sales Intelligence</div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item" data-section="data">Data Sources</button>
+        <button class="nav-item active" data-section="overview">Overview</button>
+        <button class="nav-item" data-section="stores">Store Performance</button>
+        <button class="nav-item" data-section="promoters">PS Performance</button>
+        <button class="nav-item" data-section="inventory">Inventory</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <span class="status-dot" id="connectionDot"></span>
+        <span id="connectionText">Demo data</span>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">realme WVIS</div>
+          <h1 id="pageTitle">Sales Performance Dashboard</h1>
+          <p class="muted" id="periodLabel">Current month performance</p>
+        </div>
+        <div class="top-actions">
+          <div class="updated-box">
+            <span class="updated-label">Last updated</span>
+            <strong id="lastUpdated">—</strong>
+          </div>
+          <button class="refresh-btn" id="refreshBtn">Refresh data</button>
+        </div>
+      </header>
+
+      <section class="filters card">
+        <div class="filter-group">
+          <label for="monthFilter">Month</label>
+          <select id="monthFilter"></select>
+        </div>
+        <div class="filter-group">
+          <label for="areaFilter">Area</label>
+          <select id="areaFilter"><option value="ALL">All areas</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="asmFilter">ASM</label>
+          <select id="asmFilter"><option value="ALL">All ASM</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="customerFilter">Customer</label>
+          <select id="customerFilter"><option value="ALL">All customers</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="channelFilter">Channel</label>
+          <select id="channelFilter"><option value="ALL">All channels</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="modelFilter">Model</label>
+          <select id="modelFilter"><option value="ALL">All models</option></select>
+        </div>
+      </section>
+
+
+      <section id="dataSection" class="dashboard-section">
+        <div class="source-intro card">
+          <div>
+            <div class="eyebrow">Sales data manager</div>
+            <h2>Monthly sales file uploads</h2>
+            <p>Upload two files using the same column layout. The dashboard combines them automatically while keeping the source of every row identifiable.</p>
+          </div>
+          <div class="combined-pill"><span id="combinedRows">0</span><small>combined sales rows</small></div>
+        </div>
+
+        <div class="upload-grid">
+          <article class="upload-card card">
+            <div class="upload-step">01</div>
+            <h2>Fixed Monthly Data</h2>
+            <p class="muted">Historical sales completed through the previous month. Replace this file only when you refresh your historical database.</p>
+            <label class="drop-zone" for="fixedFile">
+              <strong>Choose fixed historical file</strong>
+              <span>.xlsx, .xls or .csv</span>
+              <input id="fixedFile" type="file" accept=".xlsx,.xls,.csv" hidden>
+            </label>
+            <div class="file-meta" id="fixedMeta"><span class="meta-empty">No file uploaded</span></div>
+            <button class="secondary-btn danger-text" id="clearFixedBtn">Remove fixed file</button>
+          </article>
+
+          <article class="upload-card card">
+            <div class="upload-step">02</div>
+            <h2>Current Month Running Sales</h2>
+            <p class="muted">Upload the latest running sales file as often as needed. It replaces the previous current-month upload rather than adding duplicate rows.</p>
+            <label class="drop-zone" for="currentFile">
+              <strong>Choose current-month file</strong>
+              <span>.xlsx, .xls or .csv</span>
+              <input id="currentFile" type="file" accept=".xlsx,.xls,.csv" hidden>
+            </label>
+            <div class="file-meta" id="currentMeta"><span class="meta-empty">No file uploaded</span></div>
+            <button class="secondary-btn danger-text" id="clearCurrentBtn">Remove current file</button>
+          </article>
+        </div>
+
+        <article class="card validation-card">
+          <div class="card-head"><div><h2>Upload Validation</h2><p>Both files must use the same headers before they are combined.</p></div><span class="badge" id="schemaBadge">Waiting for files</span></div>
+          <div id="schemaMessage" class="schema-message">Upload either sales file to begin.</div>
+          <div class="source-summary">
+            <div><span>Fixed rows</span><strong id="fixedRows">0</strong></div>
+            <div><span>Current rows</span><strong id="currentRows">0</strong></div>
+            <div><span>Combined rows</span><strong id="combinedRows2">0</strong></div>
+            <div><span>Storage</span><strong>Browser</strong></div>
+          </div>
+        </article>
+      </section>
+
+      <section id="overviewSection" class="dashboard-section active">
+        <div class="kpi-grid">
+          <article class="kpi-card card">
+            <span class="kpi-label">Sales</span>
+            <div class="kpi-value" id="salesKpi">0</div>
+            <span class="kpi-note">units sold</span>
+          </article>
+          <article class="kpi-card card">
+            <span class="kpi-label">Target</span>
+            <div class="kpi-value" id="targetKpi">0</div>
+            <span class="kpi-note">monthly target</span>
+          </article>
+          <article class="kpi-card card accent-card">
+            <span class="kpi-label">Achievement</span>
+            <div class="kpi-value" id="achievementKpi">0%</div>
+            <div class="progress"><div id="achievementBar"></div></div>
+          </article>
+          <article class="kpi-card card">
+            <span class="kpi-label">Remaining Gap</span>
+            <div class="kpi-value" id="gapKpi">0</div>
+            <span class="kpi-note">units to target</span>
+          </article>
+          <article class="kpi-card card">
+            <span class="kpi-label">Daily Run Rate</span>
+            <div class="kpi-value" id="runRateKpi">0</div>
+            <span class="kpi-note">units / selling day</span>
+          </article>
+          <article class="kpi-card card">
+            <span class="kpi-label">Required Run Rate</span>
+            <div class="kpi-value" id="requiredRunRateKpi">0</div>
+            <span class="kpi-note">to reach target</span>
+          </article>
+        </div>
+
+        <div class="grid-2">
+          <article class="card chart-card">
+            <div class="card-head"><div><h2>Sales Trend</h2><p>Daily sell-out vs target pace</p></div></div>
+            <canvas id="salesTrendChart"></canvas>
+          </article>
+          <article class="card chart-card">
+            <div class="card-head"><div><h2>Sales by Area</h2><p>Contribution by territory</p></div></div>
+            <canvas id="areaChart"></canvas>
+          </article>
+        </div>
+
+        <div class="grid-3">
+          <article class="card chart-card compact"><div class="card-head"><div><h2>By Customer</h2><p>Top accounts</p></div></div><canvas id="customerChart"></canvas></article>
+          <article class="card chart-card compact"><div class="card-head"><div><h2>By Model</h2><p>Model mix</p></div></div><canvas id="modelChart"></canvas></article>
+          <article class="card chart-card compact"><div class="card-head"><div><h2>By Channel</h2><p>Mall vs sidestreet</p></div></div><canvas id="channelChart"></canvas></article>
+        </div>
+
+        <article class="card table-card">
+          <div class="card-head"><div><h2>Model Performance</h2><p>Sales, target, achievement and current stock</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Model</th><th>Sales</th><th>Target</th><th>Ach.</th><th>Inventory</th></tr></thead><tbody id="modelTableBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="storesSection" class="dashboard-section">
+        <div class="grid-2">
+          <article class="card table-card"><div class="card-head"><div><h2>Top Stores</h2><p>Highest selling stores</p></div></div><div class="table-wrap"><table><thead><tr><th>Store</th><th>Area</th><th>ASM</th><th>Sales</th></tr></thead><tbody id="topStoresBody"></tbody></table></div></article>
+          <article class="card table-card"><div class="card-head"><div><h2>Bottom Stores</h2><p>Stores needing attention</p></div></div><div class="table-wrap"><table><thead><tr><th>Store</th><th>Area</th><th>ASM</th><th>Sales</th></tr></thead><tbody id="bottomStoresBody"></tbody></table></div></article>
+        </div>
+        <article class="card table-card"><div class="card-head"><div><h2>Store Performance</h2><p>Full store-level view</p></div></div><div class="table-wrap"><table><thead><tr><th>Store</th><th>Customer</th><th>Area</th><th>ASM</th><th>Channel</th><th>Sales</th><th>Inventory</th></tr></thead><tbody id="storeTableBody"></tbody></table></div></article>
+      </section>
+
+      <section id="promotersSection" class="dashboard-section">
+        <div class="kpi-grid four">
+          <article class="kpi-card card"><span class="kpi-label">Total PS</span><div class="kpi-value" id="psCountKpi">0</div><span class="kpi-note">headcount</span></article>
+          <article class="kpi-card card"><span class="kpi-label">Active PS</span><div class="kpi-value" id="activePsKpi">0</div><span class="kpi-note">with sales</span></article>
+          <article class="kpi-card card"><span class="kpi-label">Sales / PS</span><div class="kpi-value" id="salesPerPsKpi">0</div><span class="kpi-note">productivity</span></article>
+          <article class="kpi-card card"><span class="kpi-label">Zero Sales PS</span><div class="kpi-value" id="zeroPsKpi">0</div><span class="kpi-note">requires action</span></article>
+        </div>
+        <article class="card table-card"><div class="card-head"><div><h2>Promoter / PS Productivity</h2><p>Sales performance by promoter</p></div></div><div class="table-wrap"><table><thead><tr><th>PS</th><th>Store</th><th>Area</th><th>ASM</th><th>Sales</th><th>Status</th></tr></thead><tbody id="psTableBody"></tbody></table></div></article>
+      </section>
+
+      <section id="inventorySection" class="dashboard-section">
+        <div class="kpi-grid four">
+          <article class="kpi-card card"><span class="kpi-label">Total Inventory</span><div class="kpi-value" id="inventoryTotalKpi">0</div><span class="kpi-note">units on hand</span></article>
+          <article class="kpi-card card"><span class="kpi-label">Stores with Stock</span><div class="kpi-value" id="storesWithStockKpi">0</div><span class="kpi-note">active inventory</span></article>
+          <article class="kpi-card card"><span class="kpi-label">Zero-stock Stores</span><div class="kpi-value" id="zeroStockStoresKpi">0</div><span class="kpi-note">replenishment risk</span></article>
+          <article class="kpi-card card"><span class="kpi-label">Est. Inventory DOH</span><div class="kpi-value" id="dohKpi">0</div><span class="kpi-note">days on hand</span></article>
+        </div>
+        <div class="grid-2">
+          <article class="card chart-card"><div class="card-head"><div><h2>Inventory by Model</h2><p>Current stock position</p></div></div><canvas id="inventoryModelChart"></canvas></article>
+          <article class="card chart-card"><div class="card-head"><div><h2>Inventory by Area</h2><p>Stock distribution</p></div></div><canvas id="inventoryAreaChart"></canvas></article>
+        </div>
+      </section>
+
+      <div class="error-banner" id="errorBanner"></div>
+    </main>
+  </div>
+</body>
+</html>
