@@ -1,5 +1,5 @@
 window.WVIS_CONFIG = {
-  companyName: "realme WVIS",
+    companyName: "realme EVIS",
   dashboardTitle: "Sales Performance Dashboard",
 
   // Your central realme WVIS Google Sheet database.
