@@ -30,6 +30,7 @@ function renderModelHistory(rows,bodyId='modelTableBody',groupKey='_model',entit
   if(!table.tHead.querySelector('[data-sort-column]'))table.tHead.innerHTML='<tr>'+labels.slice(0,leading).map((label,i)=>`<th rowspan="2" scope="col" data-sort-column="${i}">${escapeHtml(label)}</th>`).join('')+'<th colspan="3" scope="colgroup">Monthly Sales</th><th colspan="3" scope="colgroup">Increase Rate</th></tr><tr>'+labels.slice(leading).map((label,i)=>`<th scope="col" data-sort-column="${i+leading}">${escapeHtml(label)}</th>`).join('')+'</tr>';
   else [...table.tHead.querySelectorAll('[data-sort-column]')].forEach((cell,i)=>{const button=cell.querySelector('.table-sort-button');if(button){button.setAttribute('aria-label','Sort by '+labels[i]);button.textContent=labels[i]+({'ascending':' ↑','descending':' ↓'}[cell.getAttribute('aria-sort')]||' ↕');}else cell.textContent=labels[i];});
   const models=options.entities||uniq([...buckets.get(month).sales.keys()]);
+  if(bodyId==='priceRangeTableBody'){const order=new Map((window.evisPriceRanges?.getRanges()||[]).map((range,index)=>[range.name,index]));models.sort((a,b)=>(order.get(a)??Infinity)-(order.get(b)??Infinity)||a.localeCompare(b));}
   const current=buckets.get(month),total=options.entities?[...current.sales.values()].reduce((sum,qty)=>sum+qty,0):rows.reduce((sum,r)=>sum+r._qty,0);
   const complete=m=>{const [y,num]=m.split('-').map(Number);return buckets.get(m).latest===new Date(y,num,0).getDate();};
   const monthly=(m,model)=>buckets.get(m).latest?buckets.get(m).sales.get(model)||0:null;
@@ -159,6 +160,7 @@ const renderBeforeFinancials=render;render=()=>{renderBeforeFinancials();renderF
  for(const [id,title,label] of [['seriesTableBody','Series Performance','Series'],['priceRangeTableBody','Price Range Performance','Price Range'],['areaPerformanceBody','Area Performance','Area'],['channelPerformanceBody','Channel Performance','Channel']]){
   const card=source.cloneNode(true);card.querySelector('h2').textContent=title;card.querySelector('tbody').id=id;
   card.querySelector('table').setAttribute('aria-label',title);card.querySelector('th').textContent=label;
+  if(id==='priceRangeTableBody')card.querySelector('table').setAttribute('data-no-sort','');
   overview.append(card);
  }
  const before=render;render=()=>{before();renderModelHistory(state.filteredSales,'seriesTableBody','_series','Series');renderModelHistory(state.filteredSales,'priceRangeTableBody','_priceRange','Price Range');renderModelHistory(state.filteredSales,'areaPerformanceBody','_area','Area');renderModelHistory(state.filteredSales,'channelPerformanceBody','_channel','Channel');};
