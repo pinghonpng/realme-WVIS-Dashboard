@@ -163,3 +163,48 @@ const renderBeforeFinancials=render;render=()=>{renderBeforeFinancials();renderF
  }
  const before=render;render=()=>{before();renderModelHistory(state.filteredSales,'seriesTableBody','_series','Series');renderModelHistory(state.filteredSales,'priceRangeTableBody','_priceRange','Price Range');};
 })();
+
+// KPI comparisons use calendar-day coverage from the full upload, including zero-sale days.
+const OVERVIEW_UNIT_TARGETS={'2026-09':8000,'2026-08':8000};
+function overviewKpiPeriod(all,month,filters){
+ const previous=modelMonthOffset(month,-1),dayCount=m=>{const [y,n]=m.split('-').map(Number);return new Date(y,n,0).getDate();};
+ const currentAll=all.filter(r=>modelMonthKey(r._date)===month),priorAll=all.filter(r=>modelMonthKey(r._date)===previous);
+ const cutoff=currentAll.reduce((max,r)=>Math.max(max,r._date.getDate()),0),priorEnd=Math.min(cutoff,dayCount(previous));
+ const priorLatest=priorAll.reduce((max,r)=>Math.max(max,r._date.getDate()),0);
+ const matches=r=>filters.every(([key,value])=>passes(r[key],value));
+ return {previous,cutoff,priorEnd,currentDays:dayCount(month),priorDays:dayCount(previous),available:cutoff>0&&priorLatest>=priorEnd,current:financialTotals(currentAll.filter(matches)),prior:financialTotals(priorAll.filter(r=>r._date.getDate()<=priorEnd&&matches(r)))};
+}
+function overviewRequiredRate(units,target,remaining){return target==null?null:units>=target?0:remaining>0?(target-units)/remaining:null;}
+(()=>{
+ const ids=['salesKpi','salesAmountKpi','aspKpi','premiumKpi','runRateKpi','requiredRunRateKpi'];
+ ids.forEach(id=>{const note=document.createElement('div');note.id=id+'Comparison';note.className='overview-kpi-comparison';$(id).closest('article').append(note);});
+ for(const [id,label] of [['modelTableBody','Model Performance'],['seriesTableBody','Series Performance'],['priceRangeTableBody','Price Range Performance']]){
+  const card=$(id).closest('article'),content=$(id).closest('.table-wrap'),button=document.createElement('button');
+  button.type='button';button.className='secondary-btn';button.setAttribute('aria-label','Hide '+label);content.id=id+'Content';button.setAttribute('aria-controls',content.id);
+  card.querySelector('.card-head').append(button);let hidden=false;try{hidden=localStorage.getItem('evis.hidden.'+id)==='true';}catch{}
+  function apply(){content.hidden=hidden;button.textContent=hidden?'Show table':'Hide table';button.setAttribute('aria-label',(hidden?'Show ':'Hide ')+label);button.setAttribute('aria-expanded',String(!hidden));}
+  button.addEventListener('click',()=>{hidden=!hidden;try{localStorage.setItem('evis.hidden.'+id,String(hidden));}catch{}apply();});apply();
+ }
+ const style=document.createElement('style');style.textContent='.overview-kpi-comparison{font-size:11px;line-height:1.5;color:#737b87;margin-top:9px}.overview-kpi-comparison .up{color:#238344}.overview-kpi-comparison .down{color:#c63c3c}.overview-kpi-comparison .steady{color:#286bc1}.overview-kpi-comparison .kpi-ir{font-weight:600;white-space:nowrap}#overviewSection .card-head>.secondary-btn{flex-shrink:0;margin-left:12px}';document.head.appendChild(style);
+ function comparison(id,value,previous,format,label){
+  const rate=modelRate(value,previous),symbol={up:'▲',down:'▼',steady:'━',missing:''}[rate.kind];
+  $(id+'Comparison').innerHTML=escapeHtml(label)+': '+(previous===null?'—':escapeHtml(format(previous)))+'<br><span class="kpi-ir '+rate.kind+'">IR '+symbol+' '+rate.text+'</span>';
+ }
+ function update(){
+  const month=selected('monthFilter');if(!/^\d{4}-\d{2}$/.test(month))return;
+  const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
+  const p=overviewKpiPeriod(salesEnriched(),month,filters),c=p.current,b=p.prior,label=monthName(p.previous)+' 1–'+(p.priorEnd||'—');
+  const amount=t=>t.missingAmount?null:t.amount,asp=t=>t.missingAmount||t.units<=0?null:t.amount/t.units,premium=t=>t.missingPrice?null:t.premiumUnits;
+  const daily=p.cutoff?c.units/p.cutoff:null,priorDaily=p.priorEnd?b.units/p.priorEnd:null;
+  const target=OVERVIEW_UNIT_TARGETS[month],priorTarget=OVERVIEW_UNIT_TARGETS[p.previous];
+  const required=p.cutoff?overviewRequiredRate(c.units,target,p.currentDays-p.cutoff):null,priorRequired=overviewRequiredRate(b.units,priorTarget,p.priorDays-p.priorEnd);
+  $('runRateKpi').textContent=daily===null?'—':fmt(daily,1);$('runRateKpi').closest('article').querySelector('.kpi-note').textContent='units / elapsed calendar day';
+  $('requiredRunRateKpi').textContent=required===null?'—':fmt(required,1);
+  $('requiredRunRateKpi').closest('article').querySelector('.kpi-note').textContent=target==null?'No monthly unit target set':fmt(target)+'-unit target · '+Math.max(p.currentDays-p.cutoff,0)+' days remaining';
+  $('requiredRunRateKpi').closest('article').title='Monthly unit target stays unchanged when filters are applied. Required rate = remaining units / remaining calendar days.';
+  const values=[[c.units,b.units,v=>fmt(v)],[amount(c),amount(b),php],[asp(c),asp(b),php],[premium(c),premium(b),v=>fmt(v)+(b.units>0?' ('+pct(v/b.units*100)+')':'')],[daily,priorDaily,v=>fmt(v,1)],[required,priorRequired,v=>fmt(v,1)]];
+  ids.forEach((id,i)=>comparison(id,p.cutoff?values[i][0]:null,p.available?values[i][1]:null,values[i][2],label));
+  if(priorTarget==null)$('requiredRunRateKpiComparison').insertAdjacentHTML('beforeend','<br>Previous-month target not set');
+ }
+ const before=render;render=()=>{before();update();};
+})();
