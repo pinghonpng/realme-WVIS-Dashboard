@@ -29,7 +29,7 @@ function renderModelHistory(rows,bodyId='modelTableBody',groupKey='_model',entit
   table.classList.add('model-history-table');
   if(!table.tHead.querySelector('[data-sort-column]'))table.tHead.innerHTML='<tr>'+labels.slice(0,leading).map((label,i)=>`<th rowspan="2" scope="col" data-sort-column="${i}">${escapeHtml(label)}</th>`).join('')+'<th colspan="3" scope="colgroup">Monthly Sales</th><th colspan="3" scope="colgroup">Increase Rate</th></tr><tr>'+labels.slice(leading).map((label,i)=>`<th scope="col" data-sort-column="${i+leading}">${escapeHtml(label)}</th>`).join('')+'</tr>';
   else [...table.tHead.querySelectorAll('[data-sort-column]')].forEach((cell,i)=>{const button=cell.querySelector('.table-sort-button');if(button){button.setAttribute('aria-label','Sort by '+labels[i]);button.textContent=labels[i]+({'ascending':' ↑','descending':' ↓'}[cell.getAttribute('aria-sort')]||' ↕');}else cell.textContent=labels[i];});
-  const models=options.entities||uniq([...buckets.get(month).sales.keys()]);
+  const models=(options.entities||uniq([...buckets.get(month).sales.keys()])).filter(options.entityFilter||(()=>true));
   if(bodyId==='priceRangeTableBody'){const order=new Map((window.evisPriceRanges?.getRanges()||[]).map((range,index)=>[range.name,index]));models.sort((a,b)=>(order.get(a)??Infinity)-(order.get(b)??Infinity)||a.localeCompare(b));}
   const current=buckets.get(month),total=options.entities?[...current.sales.values()].reduce((sum,qty)=>sum+qty,0):rows.reduce((sum,r)=>sum+r._qty,0);
   const complete=m=>{const [y,num]=m.split('-').map(Number);return buckets.get(m).latest===new Date(y,num,0).getDate();};
@@ -60,7 +60,20 @@ const dealerSection=document.createElement('section');dealerSection.id='dealersS
 dealerSection.innerHTML='<article class="card table-card"><div class="card-head"><div><h2>Dealer Performance</h2><p>Select a month with uploaded sales to compare dealer performance.</p></div></div><p class="score-note">Dealers use Customer Short Name (column X). Sales combine all stores belonging to each dealer. Market share is each dealer’s portion of sales in the selected view.</p><div class="table-wrap"><table class="model-history-table"><thead><tr><th>Dealer</th><th>Sales</th><th>Market Share</th><th>Previous month</th><th>Change</th><th colspan="3">Monthly Sales</th><th colspan="3">Increase Rate</th></tr></thead><tbody id="dealerTableBody"><tr><td colspan="11">No shared sales loaded yet.</td></tr></tbody></table></div></article>';
 $('overviewSection').after(dealerSection);
 const renderBeforeDealers=render;
-render=()=>{renderBeforeDealers();renderModelHistory(state.filteredSales,'dealerTableBody','_customer','Dealer');};
+const top50DealerNames=new Set(['AEROFONE','JM Group','Cellboy','GALLEON ENTERPRISES','Tonnys Cellshop','Cellcom Word Communications','PLAY TELECOM','EMCOR','D Cell City','Ji Telecom','MemoXpress','TFT DIGITAL HUB CO.','Shanyi Cellphone and Accessories - WVIS','BSD','OCTAGON'].map(name=>name.trim().replace(/\s+/g,' ').toLowerCase()));
+function isTop50Dealer(name){return top50DealerNames.has(String(name||'').trim().replace(/\s+/g,' ').toLowerCase());}
+let top50DealersOnly=false;try{top50DealersOnly=localStorage.getItem('wvis.top50DealersOnly')==='true';}catch{}
+const top50Controls=document.createElement('div');top50Controls.className='top50-dealer-controls';top50Controls.innerHTML='<button type="button" class="secondary-btn" id="top50DealersToggle" aria-pressed="false" aria-controls="dealerTableBody">Top 50 Dealers only</button><span id="top50DealersStatus" role="status"></span>';
+dealerSection.querySelector('.table-wrap').before(top50Controls);
+function renderDealerPerformance(){
+ const rows=top50DealersOnly?state.filteredSales.filter(r=>isTop50Dealer(r._customer)):state.filteredSales;
+ renderModelHistory(rows,'dealerTableBody','_customer','Dealer',top50DealersOnly?{entityFilter:isTop50Dealer}:{});
+ $('top50DealersToggle').setAttribute('aria-pressed',String(top50DealersOnly));
+ $('top50DealersStatus').textContent=top50DealersOnly?'Showing your Top 50 group · 15 listed dealers · universal filters still apply.':'Showing all dealers matching the universal filters.';
+}
+$('top50DealersToggle').addEventListener('click',()=>{top50DealersOnly=!top50DealersOnly;try{localStorage.setItem('wvis.top50DealersOnly',String(top50DealersOnly));}catch{}renderDealerPerformance();});
+render=()=>{renderBeforeDealers();renderDealerPerformance();};
+const top50Style=document.createElement('style');top50Style.textContent='.top50-dealer-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}.top50-dealer-controls span{font-size:12px;color:#747a85}#top50DealersToggle[aria-pressed="true"]{background:#fff2bc;border-color:#d4ad20;color:#111214}';document.head.append(top50Style);
 const dealerStyle=document.createElement('style');
 dealerStyle.textContent='#dealerTableBody .model-rate{white-space:nowrap;font-weight:600}#dealerTableBody .up{color:#238344}#dealerTableBody .down{color:#c63c3c}#dealerTableBody .steady{color:#286bc1}#dealerTableBody td{font-variant-numeric:tabular-nums}';
 document.head.appendChild(dealerStyle);
