@@ -70,6 +70,5 @@ function pushReport(all,roster,rangeName,view,filters,campaign){
   $('pushNotice').textContent=warnings.join(' ');
  }
  $('pushView').addEventListener('change',renderPushModels);
- const theme=document.createElement('style');theme.textContent='#pushModelsSection table thead th,#pushModelsSection table tfoot th,#pushModelsSection table tfoot td{background:#fbbc04;color:#111214;border-color:#b88b03}';document.head.append(theme);
  const before=render;render=()=>{before();renderPushModels();};window.evisPushModels={render:renderPushModels};
 })();

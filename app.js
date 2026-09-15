@@ -1,6 +1,9 @@
 const CFG = window.WVIS_CONFIG || {};
 const state = { raw:{sales:[],stores:[],promoters:[],targets:[],inventory:[],models:[]}, filteredSales:[], charts:{}, live:false, uploads:{fixed:null,current:null} };
 
+Chart.defaults.font.family='"Source Sans 3", Arial, sans-serif';
+document.fonts?.ready.then(()=>Object.values(state.charts).forEach(chart=>chart.update('none')));
+
 const $ = (id)=>document.getElementById(id);
 const n = (v)=>Number(String(v ?? 0).replace(/,/g,'')) || 0;
 const fmt = (v,d=0)=>Number(v||0).toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
