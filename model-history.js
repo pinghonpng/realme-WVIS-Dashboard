@@ -28,7 +28,7 @@ function renderModelHistory(rows,bodyId='modelTableBody',groupKey='_model',entit
   table.classList.add('model-history-table');
   if(!table.tHead.querySelector('[data-sort-column]'))table.tHead.innerHTML='<tr>'+labels.slice(0,5).map((label,i)=>`<th rowspan="2" scope="col" data-sort-column="${i}">${escapeHtml(label)}</th>`).join('')+'<th colspan="3" scope="colgroup">Monthly Sales</th><th colspan="3" scope="colgroup">Increase Rate</th></tr><tr>'+labels.slice(5).map((label,i)=>`<th scope="col" data-sort-column="${i+5}">${escapeHtml(label)}</th>`).join('')+'</tr>';
   else [...table.tHead.querySelectorAll('[data-sort-column]')].forEach((cell,i)=>{const button=cell.querySelector('.table-sort-button');if(button){button.setAttribute('aria-label','Sort by '+labels[i]);button.textContent=labels[i]+({'ascending':' ↑','descending':' ↓'}[cell.getAttribute('aria-sort')]||' ↕');}else cell.textContent=labels[i];});
-  const models=uniq(months.slice(0,4).flatMap(m=>[...buckets.get(m).sales.keys()]));
+  const models=uniq([...buckets.get(month).sales.keys()]);
   const total=rows.reduce((sum,r)=>sum+r._qty,0),current=buckets.get(month);
   const complete=m=>{const [y,num]=m.split('-').map(Number);return buckets.get(m).latest===new Date(y,num,0).getDate();};
   const monthly=(m,model)=>buckets.get(m).latest?buckets.get(m).sales.get(model)||0:null;
