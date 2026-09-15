@@ -37,6 +37,13 @@ function renderModelHistory(rows,bodyId='modelTableBody',groupKey='_model',entit
     const sales=current.sales.get(model)||0,prior=history.matchedAvailable?history.matched.get(model)||0:null;
     return `<tr><td><strong>${escapeHtml(options.names?.get(model)||model)}</strong></td><td>${fmt(sales)}</td>${options.hideShare?'':`<td>${pct(total?sales/total*100:0)}</td>`}<td>${prior===null?'—':fmt(prior)}</td>${modelRateCell(current.latest?sales:null,prior)}${past.map(m=>{const value=monthly(m,model);return `<td>${value===null?'—':fmt(value)+(complete(m)?'':' *')}</td>`;}).join('')}${past.map(m=>{const prev=modelMonthOffset(m,-1);return modelRateCell(complete(m)?monthly(m,model):null,complete(prev)?monthly(prev,model):null);}).join('')}</tr>`;
   }).join('')||emptyRow(labels.length);
+  // Aggregate displayed entities first; calculate rates from their combined units.
+  const aggregate=map=>models.reduce((sum,key)=>sum+(map.get(key)||0),0);
+  const currentTotal=aggregate(current.sales),priorTotal=history.matchedAvailable?aggregate(history.matched):null;
+  const monthlyTotal=m=>buckets.get(m).latest?aggregate(buckets.get(m).sales):null;
+  const footer=table.tFoot||table.createTFoot();footer.dataset.summary='history';
+  footer.innerHTML=`<tr><th scope="row">WVIS</th><td>${fmt(currentTotal)}</td>${options.hideShare?'':`<td>${pct(total?currentTotal/total*100:0)}</td>`}<td>${priorTotal===null?'—':fmt(priorTotal)}</td>${modelRateCell(current.latest?currentTotal:null,priorTotal)}${past.map(m=>{const value=monthlyTotal(m);return `<td>${value===null?'—':fmt(value)+(complete(m)?'':' *')}</td>`;}).join('')}${past.map(m=>{const prev=modelMonthOffset(m,-1);return modelRateCell(complete(m)?monthlyTotal(m):null,complete(prev)?monthlyTotal(prev):null);}).join('')}</tr>`;
+  footer.title='Totals for the rows in this table. Increase rates use combined sales.';
   table.closest('article').querySelector('.card-head p').textContent=`Current sales: ${monthName(month)} 1–${history.cutoff||'—'}. Previous period: ${monthName(months[1])} 1–${history.previousEnd||'—'}. ${options.hideShare?'':'Market share uses selected-view units. '}IR = (new − previous) / previous. Blue line: ±1%; green: increase; red: decrease. New = zero prior sales. Past months show all uploaded sales; * means data ends before month-end, and incomplete/missing comparisons show —. All filters apply to both periods.`;
 }
 renderModelTable=renderModelHistory;
