@@ -193,7 +193,7 @@ function renderStores(rows){
 }
 function renderPromoters(rows){
   const list=filteredPromoterAggregates(rows);
-  const active=list.filter(x=>x.sales>0).length,total=list.length; $('psCountKpi').textContent=fmt(total); $('activePsKpi').textContent=fmt(active); $('salesPerPsKpi').textContent=fmt(total?rows.reduce((s,r)=>s+r._qty,0)/total:0,1); $('zeroPsKpi').textContent=fmt(total-active); $('psTableBody').innerHTML=list.map(x=>`<tr><td><strong>${escapeHtml(x.name)}</strong></td><td>${escapeHtml(x.store)}</td><td>${escapeHtml(x.area)}</td><td>${escapeHtml(x.asm)}</td><td>${fmt(x.sales)}</td><td><span class="badge ${x.sales>0?'good':'bad'}">${x.sales>0?'Active':'Zero sales'}</span></td></tr>`).join('')||emptyRow(6);
+  const active=list.filter(x=>x.sales>0).length,total=list.length; $('psCountKpi').textContent=fmt(total); $('activePsKpi').textContent=fmt(active); $('salesPerPsKpi').textContent=fmt(total?rows.reduce((s,r)=>s+r._qty,0)/total:0,1); $('zeroPsKpi').textContent=fmt(total-active); $('psTableBody').innerHTML=list.map(x=>`<tr data-promoter-id="${escapeHtml(x.pid)}"><td><strong>${escapeHtml(x.name)}</strong></td><td>${escapeHtml(x.store)}</td><td>${escapeHtml(x.area)}</td><td>${escapeHtml(x.asm)}</td><td>${fmt(x.sales)}</td><td><span class="badge ${x.sales>0?'good':'bad'}">${x.sales>0?'With sales':'Zero sales'}</span></td></tr>`).join('')||emptyRow(6);
 }
 function renderInventory(rows){
   const inv=inventoryRows(), total=inv.reduce((s,r)=>s+r._inv,0), stores=storeAggregates(rows), withStock=stores.filter(x=>x.inventory>0).length, zero=Math.max(stores.length-withStock,0), sales=rows.reduce((s,r)=>s+r._qty,0), dates=uniq(rows.map(r=>r._date.toISOString().slice(0,10))).length||1, daily=sales/dates, doh=daily?total/daily:0;
