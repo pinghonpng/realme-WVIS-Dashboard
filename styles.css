@@ -12,3 +12,9 @@ input,textarea{font-family:inherit}
 .dashboard-section table thead th{background:#f7f8fa!important;color:#747a85;border-color:#d8dce2}
 .dashboard-section table thead th[scope=colgroup]{background:#eef0f3!important}
 .dashboard-section table tfoot th,.dashboard-section table tfoot td{background:#eef0f3!important;color:#111214;border-color:#d8dce2}
+
+/* Keep the dashboard concise while retaining live status and validation messages.
+   Renderer-owned note elements stay mounted so data refreshes can still update them. */
+.dashboard-section p:not([role="status"]):not([role="alert"]):not(#sharedVersion):not(#sharedAdmin):not(#activeRosterNotice):not(#customerTypeNotice):not(#missingModels){display:none!important}
+#top50DealersStatus{display:none!important}
+.dashboard-section p[role="status"]:empty,.dashboard-section p[role="alert"]:empty{display:none!important}
