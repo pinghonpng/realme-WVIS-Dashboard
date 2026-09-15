@@ -17,7 +17,7 @@ function applyTableSort(table){
   const body=table.tBodies[0];if(!body)return;
   const rows=[...body.rows];
   if(rows.some(row=>row.cells.length!==table.tHead.rows[0].cells.length))return;
-  const entries=rows.map((row,index)=>({row,index,value:tableSortValue(row.cells[sort.column].innerText)}));
+  const entries=rows.map((row,index)=>({row,index,value:tableSortValue(row.cells[sort.column].getAttribute('data-sort-value')??row.cells[sort.column].innerText)}));
   const numeric=entries.some(e=>e.value!==null)&&entries.every(e=>e.value===null||e.value.number!==null);
   entries.sort((a,b)=>compareTableValues(a.value,b.value,numeric,sort.direction)||a.index-b.index);
   if(entries.some((e,i)=>e.row!==rows[i]))body.append(...entries.map(e=>e.row));
