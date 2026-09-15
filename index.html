@@ -64,8 +64,8 @@
           <select id="areaFilter"><option value="ALL">All areas</option></select>
         </div>
         <div class="filter-group">
-          <label for="asmFilter">ASM</label>
-          <select id="asmFilter"><option value="ALL">All ASM</option></select>
+          <label for="asmFilter">Subregions</label>
+          <select id="asmFilter"><option value="ALL">All subregions</option></select>
         </div>
         <div class="filter-group">
           <label for="customerFilter">Customer</label>
@@ -191,10 +191,10 @@
 
       <section id="storesSection" class="dashboard-section">
         <div class="grid-2">
-          <article class="card table-card"><div class="card-head"><div><h2>Top Stores</h2><p>Highest selling stores</p></div></div><div class="table-wrap"><table><thead><tr><th>Store</th><th>Area</th><th>ASM</th><th>Sales</th></tr></thead><tbody id="topStoresBody"></tbody></table></div></article>
-          <article class="card table-card"><div class="card-head"><div><h2>Bottom Stores</h2><p>Stores needing attention</p></div></div><div class="table-wrap"><table><thead><tr><th>Store</th><th>Area</th><th>ASM</th><th>Sales</th></tr></thead><tbody id="bottomStoresBody"></tbody></table></div></article>
+          <article class="card table-card"><div class="card-head"><div><h2>Top Stores</h2><p>Highest selling stores</p></div></div><div class="table-wrap"><table><thead><tr><th>Store</th><th>Area</th><th>Subregions</th><th>Sales</th></tr></thead><tbody id="topStoresBody"></tbody></table></div></article>
+          <article class="card table-card"><div class="card-head"><div><h2>Bottom Stores</h2><p>Stores needing attention</p></div></div><div class="table-wrap"><table><thead><tr><th>Store</th><th>Area</th><th>Subregions</th><th>Sales</th></tr></thead><tbody id="bottomStoresBody"></tbody></table></div></article>
         </div>
-        <article class="card table-card"><div class="card-head"><div><h2>Store Performance</h2><p>Full store-level view</p></div></div><div class="table-wrap"><table><thead><tr><th>Store</th><th>Customer</th><th>Area</th><th>ASM</th><th>Channel</th><th>Sales</th><th>Inventory</th></tr></thead><tbody id="storeTableBody"></tbody></table></div></article>
+        <article class="card table-card"><div class="card-head"><div><h2>Store Performance</h2><p>Full store-level view</p></div></div><div class="table-wrap"><table><thead><tr><th>Store</th><th>Customer</th><th>Area</th><th>Subregions</th><th>Channel</th><th>Sales</th><th>Inventory</th></tr></thead><tbody id="storeTableBody"></tbody></table></div></article>
       </section>
 
       <section id="promotersSection" class="dashboard-section">
@@ -204,7 +204,7 @@
           <article class="kpi-card card"><span class="kpi-label">Sales / PS</span><div class="kpi-value" id="salesPerPsKpi">0</div><span class="kpi-note">productivity</span></article>
           <article class="kpi-card card"><span class="kpi-label">Zero Sales PS</span><div class="kpi-value" id="zeroPsKpi">0</div><span class="kpi-note">requires action</span></article>
         </div>
-        <article class="card table-card"><div class="card-head"><div><h2>Promoter / PS Productivity</h2><p>Sales performance by promoter</p></div></div><div class="table-wrap"><table><thead><tr><th>PS</th><th>Store</th><th>Area</th><th>ASM</th><th>Sales</th><th>Status</th></tr></thead><tbody id="psTableBody"></tbody></table></div></article>
+        <article class="card table-card"><div class="card-head"><div><h2>Promoter / PS Productivity</h2><p>Sales performance by promoter</p></div></div><div class="table-wrap"><table><thead><tr><th>PS</th><th>Store</th><th>Area</th><th>Subregions</th><th>Sales</th><th>Status</th></tr></thead><tbody id="psTableBody"></tbody></table></div></article>
       </section>
 
       <section id="inventorySection" class="dashboard-section">
