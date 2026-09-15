@@ -88,7 +88,7 @@ function renderScores(rows){
     const assigned=g.id!=='Unassigned',target=assigned?PS_SCORE_TARGET:null;
     const progress=scoreFile&&assigned?pct(g.points/target*100)+(g.missing?' *':''):'—';
     const status=!scoreFile?'Awaiting scores':g.missing?'Incomplete':!assigned?'Missing PS ID':g.points>=target?'Target reached':'In progress';
-    return `<tr><td><strong>${escapeHtml(names.get(g.id)||g.id)}</strong><div class="muted">${escapeHtml(g.id)}</div></td><td>${escapeHtml(uniq(g.items.map(r=>r._asm||'Unassigned')).join(', '))}</td><td>${fmt(g.units)}</td><td>${scoreText(g)}</td><td>${target??'—'}</td><td>${progress}</td><td>${scoreFile&&assigned?fmt(Math.max(target-g.points,0),2)+(g.missing?' *':''):'—'}</td><td>${status}</td></tr>`;
+    return `<tr data-promoter-id="${assigned?escapeHtml(g.id):''}"><td><strong>${escapeHtml(find(g.items[0],'PS Name','Promoter Name')||names.get(g.id)||g.id)}</strong><div class="muted">${escapeHtml(g.id)}</div></td><td>${escapeHtml(uniq(g.items.map(r=>r._asm||'Unassigned')).join(', '))}</td><td>${fmt(g.units)}</td><td>${scoreText(g)}</td><td>${target??'—'}</td><td>${progress}</td><td>${scoreFile&&assigned?fmt(Math.max(target-g.points,0),2)+(g.missing?' *':''):'—'}</td><td>${status}</td></tr>`;
   }).join('')||emptyRow(8);
   $('subregionScoreBody').innerHTML=scoreGroups(rows,'_asm').map(g=>`<tr><td><strong>${escapeHtml(g.id)}</strong></td><td>${fmt(g.units)}</td><td>${scoreText(g)}</td><td>${fmt(g.unmappedUnits)}</td></tr>`).join('')||emptyRow(4);
 }
