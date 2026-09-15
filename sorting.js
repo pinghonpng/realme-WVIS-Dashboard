@@ -53,6 +53,7 @@ function refreshTableSorting(){
   tableSortObserver.disconnect();
   prepareSortableTables();
   refreshTableSummaries();
+  prepareTableVisibility();
   document.querySelectorAll('table tbody').forEach(body=>tableSortObserver.observe(body,{childList:true,subtree:true,characterData:true}));
 }
 const tableSortStyle=document.createElement('style');
@@ -98,3 +99,20 @@ function refreshTableSummaries(){
  });
 }
 const summaryStyle=document.createElement('style');summaryStyle.textContent='table tfoot th,table tfoot td{background:#eef0f3;font-weight:700;border:1px solid #d8dce2;border-top:2px solid #999fa8;text-align:center}table tfoot .up{color:#238344}table tfoot .down{color:#c63c3c}table tfoot .steady{color:#286bc1}table tfoot .model-rate{white-space:nowrap}';document.head.appendChild(summaryStyle);
+
+
+// Table visibility is independent of filters, sorting and shared data.
+function prepareTableVisibility(){
+ document.querySelectorAll('table').forEach(table=>{
+  const body=table.tBodies[0],wrap=table.closest('.table-wrap');if(!body?.id||!wrap||table.dataset.visibilityReady)return;
+  const contentId=wrap.id||body.id+'Content';wrap.id=contentId;
+  if([...document.querySelectorAll('button[aria-controls]')].some(button=>button.getAttribute('aria-controls')===contentId)){table.dataset.visibilityReady='true';return;}
+  const title=table.getAttribute('aria-label')||table.closest('details')?.querySelector('summary')?.textContent||table.closest('article')?.querySelector('h2,h3')?.textContent||'table';
+  const toolbar=document.createElement('div');toolbar.className='table-visibility-controls';
+  const button=document.createElement('button');button.type='button';button.className='secondary-btn';button.setAttribute('aria-controls',contentId);toolbar.append(button);wrap.before(toolbar);
+  let hidden=false;try{hidden=localStorage.getItem('evis.hidden.'+body.id)==='true';}catch{}
+  function apply(){wrap.hidden=hidden;button.textContent=hidden?'Show table':'Hide table';button.setAttribute('aria-expanded',String(!hidden));button.setAttribute('aria-label',(hidden?'Show ':'Hide ')+title);}
+  button.addEventListener('click',()=>{hidden=!hidden;try{localStorage.setItem('evis.hidden.'+body.id,String(hidden));}catch{}apply();});apply();table.dataset.visibilityReady='true';
+ });
+}
+const tableVisibilityStyle=document.createElement('style');tableVisibilityStyle.textContent='.table-visibility-controls{display:flex;justify-content:flex-end;margin:8px 0}.table-visibility-controls .secondary-btn{margin:0;padding:6px 12px}.table-wrap[hidden]{display:none!important}';document.head.appendChild(tableVisibilityStyle);
