@@ -12,11 +12,12 @@ function compareTableValues(a,b,numeric,direction){
   if(b===null)return -1;
   return direction*(numeric?a.number-b.number:tableCollator.compare(a.text,b.text));
 }
+function sortableTableHeaders(table){const columns=[...table.tHead.querySelectorAll('th[data-sort-column]')];return columns.length?columns:[...table.tHead.rows[0].cells];}
 function applyTableSort(table){
   const sort=tableSortState.get(table);if(!sort)return;
   const body=table.tBodies[0];if(!body)return;
   const rows=[...body.rows];
-  if(rows.some(row=>row.cells.length!==table.tHead.rows[0].cells.length))return;
+  if(rows.some(row=>row.cells.length!==sortableTableHeaders(table).length))return;
   const entries=rows.map((row,index)=>({row,index,value:tableSortValue(row.cells[sort.column].getAttribute('data-sort-value')??row.cells[sort.column].innerText)}));
   const numeric=entries.some(e=>e.value!==null)&&entries.every(e=>e.value===null||e.value.number!==null);
   entries.sort((a,b)=>compareTableValues(a.value,b.value,numeric,sort.direction)||a.index-b.index);
@@ -25,7 +26,7 @@ function applyTableSort(table){
 function prepareSortableTables(){
   document.querySelectorAll('table').forEach(table=>{
     if(!table.tHead||!table.tBodies.length)return;
-    [...table.tHead.rows[0].cells].forEach((header,column)=>{
+    sortableTableHeaders(table).forEach((header,column)=>{
       if(header.querySelector('.table-sort-button'))return;
       const label=header.textContent.trim();
       header.setAttribute('aria-sort','none');
@@ -36,7 +37,7 @@ function prepareSortableTables(){
         const previous=tableSortState.get(table);
         const sort={column,direction:previous?.column===column?-previous.direction:1};
         tableSortState.set(table,sort);
-        [...table.tHead.rows[0].cells].forEach((cell,i)=>{
+        sortableTableHeaders(table).forEach((cell,i)=>{
           cell.setAttribute('aria-sort',i===column?(sort.direction===1?'ascending':'descending'):'none');
           const control=cell.querySelector('.table-sort-button');
           control.textContent=control.getAttribute('aria-label').slice(8)+(i===column?(sort.direction===1?' ↑':' ↓'):' ↕');
