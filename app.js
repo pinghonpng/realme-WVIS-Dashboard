@@ -95,7 +95,7 @@ async function parseSalesFile(file){
 }
 function combinedUploads(){
   const f=state.uploads.fixed,c=state.uploads.current; if(f&&c&&!sameHeaders(f.headers,c.headers))return [];
-  return [...(f?.rows||[]).map(r=>({...r,_DataSource:'Fixed Monthly Data'})),...(c?.rows||[]).map(r=>({...r,_DataSource:'Current Month Running Sales'}))];
+  return [...(f?.rows||[]).map(r=>({...r,_DataSource:'Fixed Monthly Data'})),...(c?.rows||[]).map(r=>({...r,_DataSource:'Current Month Running Sales'}))].filter(r=>normalize(find(r,'Date','Sales Date','Sellout Date','Transaction Date','Store ID','Store Code','Store Name','Model','Qty'))!=='');
 }
 function renderUploadUI(){
   const f=state.uploads.fixed,c=state.uploads.current,combined=combinedUploads();
@@ -116,7 +116,7 @@ async function handleUpload(kind,file){
 async function clearUpload(kind){state.uploads[kind]=null;await idbDelete(kind);renderUploadUI();if(!(await applyUploadedSales()))await refresh();toast(`${kind==='fixed'?'Fixed historical':'Current-month'} file removed.`)}
 async function restoreUploads(){try{state.uploads.fixed=await idbGet('fixed');state.uploads.current=await idbGet('current');renderUploadUI();return await applyUploadedSales()}catch(e){console.warn('Could not restore browser uploads',e);renderUploadUI();return false}}
 
-function find(obj,...names){ for(const name of names){ const key=Object.keys(obj||{}).find(k=>k.toLowerCase()===name.toLowerCase()); if(key!==undefined)return obj[key]; } return ''; }
+function find(obj,...names){ const keys=Object.keys(obj||{}), label=k=>String(k).replace(/^[^A-Za-z0-9]+/,'').trim().toLowerCase(), aliases={'qty':['sell out'],'ps id':['sr code'],'ps name':['sr name'],'customer':['customer name'],'area':['region']}; for(const name of names){const key=keys.find(k=>k.toLowerCase()===name.toLowerCase());if(key!==undefined && normalize(obj[key])!=='')return obj[key];} for(const name of names){for(const wanted of [name.toLowerCase(),...(aliases[name.toLowerCase()]||[])]){const key=keys.find(k=>label(k)===wanted);if(key!==undefined && normalize(obj[key])!=='')return obj[key];}} return ''; }
 function storeMap(){ return new Map((state.raw.stores||[]).map(s=>[find(s,'Store ID','StoreID','store_id','Store Code','Outlet ID'),s])); }
 function salesEnriched(){
   const sm=storeMap();
