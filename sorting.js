@@ -108,11 +108,21 @@ function prepareTableVisibility(){
   const contentId=wrap.id||body.id+'Content';wrap.id=contentId;
   if([...document.querySelectorAll('button[aria-controls]')].some(button=>button.getAttribute('aria-controls')===contentId)){table.dataset.visibilityReady='true';return;}
   const title=table.getAttribute('aria-label')||table.closest('details')?.querySelector('summary')?.textContent||table.closest('article')?.querySelector('h2,h3')?.textContent||'table';
-  const toolbar=document.createElement('div');toolbar.className='table-visibility-controls';
-  const button=document.createElement('button');button.type='button';button.className='secondary-btn';button.setAttribute('aria-controls',contentId);toolbar.append(button);wrap.before(toolbar);
+  const button=document.createElement('button');button.type='button';button.className='secondary-btn';button.setAttribute('aria-controls',contentId);
+  const previous=wrap.previousElementSibling,summary=table.closest('details')?.querySelector('summary');
+  let heading;
+  if(previous?.matches('h2,h3')){
+   heading=document.createElement('div');heading.className='card-head table-visibility-heading';
+   if(previous.classList.contains('productivity-cohort-title'))heading.classList.add('table-cohort-heading');
+   previous.before(heading);heading.append(previous);
+  }else if(summary){
+   heading=summary;heading.classList.add('table-visibility-summary');
+  }else heading=table.closest('article')?.querySelector('.card-head');
+  if(!heading){heading=document.createElement('div');heading.className='card-head';const label=document.createElement('h2');label.textContent=title;heading.append(label);wrap.before(heading);}
+  heading.append(button);
   let hidden=false;try{hidden=localStorage.getItem('evis.hidden.'+body.id)==='true';}catch{}
   function apply(){wrap.hidden=hidden;button.textContent=hidden?'Show table':'Hide table';button.setAttribute('aria-expanded',String(!hidden));button.setAttribute('aria-label',(hidden?'Show ':'Hide ')+title);}
-  button.addEventListener('click',()=>{hidden=!hidden;try{localStorage.setItem('evis.hidden.'+body.id,String(hidden));}catch{}apply();});apply();table.dataset.visibilityReady='true';
+  button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();hidden=!hidden;try{localStorage.setItem('evis.hidden.'+body.id,String(hidden));}catch{}apply();});apply();table.dataset.visibilityReady='true';
  });
 }
-const tableVisibilityStyle=document.createElement('style');tableVisibilityStyle.textContent='.table-visibility-controls{display:flex;justify-content:flex-end;margin:8px 0}.table-visibility-controls .secondary-btn{margin:0;padding:6px 12px}.table-wrap[hidden]{display:none!important}';document.head.appendChild(tableVisibilityStyle);
+const tableVisibilityStyle=document.createElement('style');tableVisibilityStyle.textContent='.card-head>.secondary-btn{flex-shrink:0;margin-left:12px}.table-visibility-heading>h2,.table-visibility-heading>h3{margin:0}.table-cohort-heading{margin-top:26px;margin-bottom:12px}.table-visibility-summary{min-height:40px;align-content:center}.table-visibility-summary>.secondary-btn{float:right;margin-left:12px}.table-visibility-summary::after{content:"";display:table;clear:both}.table-wrap[hidden]{display:none!important}';document.head.appendChild(tableVisibilityStyle);
