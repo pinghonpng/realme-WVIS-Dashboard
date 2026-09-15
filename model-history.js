@@ -142,3 +142,24 @@ const renderBeforeFinancials=render;render=()=>{renderBeforeFinancials();renderF
  const beforeBuildFilters=buildFilters;buildFilters=()=>{beforeBuildFilters();history.length=0;current=read();controls();};
  controls();
 })();
+
+// Overview charts can be collapsed without changing filters or table results.
+(()=>{
+ const overview=$('overviewSection'),control=document.createElement('div');control.className='overview-chart-controls';
+ control.innerHTML='<button type="button" class="secondary-btn" id="overviewChartsToggle" aria-expanded="true">Hide charts</button>';
+ overview.prepend(control);
+ const grids=[...overview.querySelectorAll('.grid-2,.grid-3')].filter(grid=>grid.querySelector('.chart-card'));
+ grids.forEach((grid,i)=>grid.id='overviewCharts'+i);
+ const toggle=$('overviewChartsToggle');toggle.setAttribute('aria-controls',grids.map(grid=>grid.id).join(' '));
+ let hidden=false;try{hidden=localStorage.getItem('evis.overviewChartsHidden')==='true';}catch{}
+ function apply(){grids.forEach(grid=>grid.hidden=hidden);toggle.textContent=hidden?'Show charts':'Hide charts';toggle.setAttribute('aria-expanded',String(!hidden));}
+ toggle.addEventListener('click',()=>{hidden=!hidden;try{localStorage.setItem('evis.overviewChartsHidden',String(hidden));}catch{}apply();});apply();
+ const style=document.createElement('style');style.textContent='.overview-chart-controls{display:flex;justify-content:flex-end;margin:0 0 14px}#overviewSection [hidden]{display:none!important}#overviewSection .model-history-table .model-rate{white-space:nowrap;font-weight:600}#overviewSection .model-history-table .up{color:#238344}#overviewSection .model-history-table .down{color:#c63c3c}#overviewSection .model-history-table .steady{color:#286bc1}';document.head.appendChild(style);
+ const source=$('modelTableBody').closest('article');
+ for(const [id,title,label] of [['seriesTableBody','Series Performance','Series'],['priceRangeTableBody','Price Range Performance','Price Range']]){
+  const card=source.cloneNode(true);card.querySelector('h2').textContent=title;card.querySelector('tbody').id=id;
+  card.querySelector('table').setAttribute('aria-label',title);card.querySelector('th').textContent=label;
+  overview.append(card);
+ }
+ const before=render;render=()=>{before();renderModelHistory(state.filteredSales,'seriesTableBody','_series','Series');renderModelHistory(state.filteredSales,'priceRangeTableBody','_priceRange','Price Range');};
+})();
