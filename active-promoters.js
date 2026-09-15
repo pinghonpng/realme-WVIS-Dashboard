@@ -58,7 +58,7 @@ function activePerformanceRows(rows,roster,filters,stores){
   if(checking||!config)return;checking=true;const epoch=generation;
   try{
    const id=sheetIdFromUrl(config.url);if(!id)throw new Error('Enter a valid public Google Sheets link.');
-   const response=await fetch(csvUrl(id,config.tab)+'&headers=1',{cache:'no-store',signal:AbortSignal.timeout(25000)});
+   const response=await fetch(csvUrl(id,config.tab)+'&headers=1&tq=select%20*',{cache:'no-store',signal:AbortSignal.timeout(25000)});
    if(!response.ok)throw new Error('Google Sheet could not be read. Check public sharing and the tab name.');
    const text=await response.text();if(/^\s*</.test(text))throw new Error('Google returned a page instead of data. Check public sharing.');
    const next=rosterParse(parseCSV(text));if(epoch!==generation)return;
