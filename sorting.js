@@ -13,6 +13,17 @@ function compareTableValues(a,b,numeric,direction){
   return direction*(numeric?a.number-b.number:tableCollator.compare(a.text,b.text));
 }
 function sortableTableHeaders(table){const columns=[...table.tHead.querySelectorAll('th[data-sort-column]')];return columns.length?columns:[...table.tHead.rows[0].cells];}
+function customerTypeColumn(table){return sortableTableHeaders(table).findIndex(h=>/^(customer type|channel)$/i.test(h.textContent.replace(/[↕↑↓]/g,'').trim()));}
+function orderCustomerTypes(table,column){
+ const rank=value=>{const i=['nka','rka','sme','inactive'].indexOf(value.trim().toLowerCase());return i<0?4:i;};
+ tableSortState.delete(table);
+ sortableTableHeaders(table).forEach(header=>{const button=header.querySelector('.table-sort-button');if(button)header.textContent=button.getAttribute('aria-label').slice(8);header.removeAttribute('aria-sort');});
+ for(const body of table.tBodies){
+  const rows=[...body.rows];if(rows.some(row=>!row.cells[column]||row.cells[0].colSpan>1))continue;
+  const ordered=rows.map((row,index)=>({row,index})).sort((a,b)=>rank(a.row.cells[column].textContent)-rank(b.row.cells[column].textContent)||a.index-b.index);
+  if(ordered.some((entry,i)=>entry.row!==rows[i]))body.append(...ordered.map(entry=>entry.row));
+ }
+}
 function applyTableSort(table){
   const sort=tableSortState.get(table);if(!sort)return;
   const body=table.tBodies[0];if(!body)return;
@@ -26,6 +37,7 @@ function applyTableSort(table){
 function prepareSortableTables(){
   document.querySelectorAll('table').forEach(table=>{
     if(table.hasAttribute('data-no-sort')||!table.tHead||!table.tBodies.length)return;
+    const typeColumn=customerTypeColumn(table);if(typeColumn>=0){orderCustomerTypes(table,typeColumn);return;}
     sortableTableHeaders(table).forEach((header,column)=>{
       if(header.querySelector('.table-sort-button'))return;
       const label=header.textContent.trim();
@@ -132,7 +144,7 @@ const tableVisibilityStyle=document.createElement('style');tableVisibilityStyle.
 function coverInactiveCustomerTypes(){
  document.querySelectorAll('table').forEach(table=>{
   if(!table.tHead)return;
-  const column=sortableTableHeaders(table).findIndex(h=>/^(customer type|channel)$/i.test(h.textContent.replace(/[↕↑↓]/g,'').trim()));
+  const column=customerTypeColumn(table);
   for(const body of table.tBodies)for(const row of body.rows){
    const inactive=column>=0&&row.cells[column]?.textContent.trim().toLowerCase()==='inactive';
    row.classList.toggle('inactive-customer-cover',inactive);
