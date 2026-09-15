@@ -31,7 +31,7 @@ function activePerformanceRows(rows,roster,filters,stores){
  const defaultConfig={url:'https://docs.google.com/spreadsheets/d/1m6k6RlB3hIwMkBC1lJcZwQpB51lyoFUO8zChpvzlCPM/edit',tab:'HR PS STATUS'};
  let config=null,roster=null,checking=false,generation=0,lastChecked=null;
  const panel=document.createElement('article');panel.className='card table-card';
- panel.innerHTML='<div class="card-head"><div><h2>Active Promoters · Google Sheet</h2><p>Current HR status applies to every sales month. Google Sheet changes are checked every minute while this dashboard is open.</p></div></div><form id="rosterForm"><label for="rosterUrl">Public Google Sheet link</label><input id="rosterUrl" type="url" required><label for="rosterTab">Sheet tab</label><input id="rosterTab" required value="HR PS STATUS"><button type="submit" class="secondary-btn" id="rosterSave" disabled>Save shared sheet link</button><button type="button" class="secondary-btn" id="rosterRefresh">Check now</button></form><p id="rosterStatus" class="score-note" role="status">Connecting to HR list…</p><p class="score-note">Required headers: PS NAME and STATUS (ACTIVE). Codes at the start of PS NAME take priority, followed by ID NUMBER, then name matching when no code is available. Missing active-list members are tagged Resigned in red. Historical sales stay included in the other dashboard tabs; PS Performance includes current ACTIVE promoters only. Sign in as administrator to change the shared source.</p>';
+ panel.innerHTML='<div class="card-head"><div><h2>Active Promoters · Google Sheet</h2><p>Current HR status applies to every sales month. Google Sheet changes are checked every minute while this dashboard is open.</p></div></div><form id="rosterForm"><label for="rosterUrl">Public Google Sheet link</label><input id="rosterUrl" type="url" required><label for="rosterTab">Sheet tab</label><input id="rosterTab" required value="HR PS STATUS"><button type="submit" class="secondary-btn" id="rosterSave" disabled>Save shared sheet link</button><button type="button" class="secondary-btn" id="rosterRefresh">Check now</button></form><p id="rosterStatus" class="score-note" role="status">Connecting to HR list…</p><p class="score-note">Required headers: PS NAME and STATUS (ACTIVE). Codes at the start of PS NAME take priority, followed by ID NUMBER, then name matching when no code is available. Missing active-list members are tagged Resigned in red. Historical sales stay included in the other dashboard tabs; Promoter Score includes current ACTIVE promoters only. Sign in as administrator to change the shared source.</p>';
  $('dataSection').append(panel);
  document.querySelectorAll('#promotersSection .score-note').forEach(el=>{
   if(el.textContent.startsWith('Promoters with sales records'))el.textContent='Current ACTIVE promoters matching the territory, customer and channel filters are listed, including zero sales for the selected month, model and series.';
@@ -62,11 +62,11 @@ function activePerformanceRows(rows,roster,filters,stores){
    if(!response.ok)throw new Error('Google Sheet could not be read. Check public sharing and the tab name.');
    const text=await response.text();if(/^\s*</.test(text))throw new Error('Google returned a page instead of data. Check public sharing.');
    const next=rosterParse(parseCSV(text));if(epoch!==generation)return;
-   roster=next;lastChecked=new Date();$('rosterStatus').textContent=next.count+' ACTIVE promoters · Last checked '+lastChecked.toLocaleString();renderPromoters(state.filteredSales);decorate();window.evisProductivity?.render();
+   roster=next;lastChecked=new Date();$('rosterStatus').textContent=next.count+' ACTIVE promoters · Last checked '+lastChecked.toLocaleString();renderPromoters(state.filteredSales);decorate();window.evisProductivity?.render();window.evisPsSalesReview?.render();
   }catch(error){if(epoch===generation)$('rosterStatus').textContent=(roster?'Using last verified HR list. ':'HR status unavailable; promoters are not marked resigned. ')+error.message;}
   finally{checking=false;if(epoch!==generation)check();}
  }
- function setConfig(next){next=next||defaultConfig;if(config&&config.url===next.url&&config.tab===next.tab)return;config={url:next.url,tab:next.tab};generation++;roster=null;decorate();$('rosterUrl').value=config.url;$('rosterTab').value=config.tab;check();}
+ function setConfig(next){next=next||defaultConfig;if(config&&config.url===next.url&&config.tab===next.tab)return;config={url:next.url,tab:next.tab};generation++;roster=null;decorate();window.evisPsSalesReview?.render();$('rosterUrl').value=config.url;$('rosterTab').value=config.tab;check();}
  $('rosterRefresh').addEventListener('click',check);
  $('rosterForm').addEventListener('submit',async event=>{event.preventDefault();const next={url:$('rosterUrl').value.trim(),tab:$('rosterTab').value.trim()};try{const url=new URL(next.url);if(url.hostname!=='docs.google.com'||!sheetIdFromUrl(url.href)||!next.tab)throw new Error('Enter a public Google Sheets link and tab name.');await window.evisSaveRoster(next);await check();}catch(error){$('rosterStatus').textContent=error.message;}});
  window.evisRoster={getRoster:()=>roster,setConfig,setAdmin:(allowed)=>{['rosterUrl','rosterTab','rosterSave'].forEach(id=>$(id).disabled=!allowed);}};
@@ -76,4 +76,37 @@ function activePerformanceRows(rows,roster,filters,stores){
  setInterval(()=>{if(document.visibilityState==='visible')check();},60000);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')check();});
  window.evisRoster.setAdmin(false);setConfig(defaultConfig);
+})();
+
+
+// Reuse dealer comparisons, grouped by verified active promoter identity.
+function psSalesReviewData(all,roster,filters,stores){
+ const entries=activePerformanceRows([],roster,filters,stores);
+ const byId=new Map(entries.map(e=>[e._ps,e])),byName=new Map(entries.map(e=>[rosterName(e['PS Name']),e]));
+ const mapped=all.map(row=>{
+  const id=rosterCode(row._ps),name=rosterName(find(row,'PS Name','Promoter Name','Frontliner Name')),named=byName.get(name);
+  const entry=byId.get(id)||((!id||named?._ps.startsWith('name:'))&&named);
+  return {...row,_reviewPs:entry?entry._ps:'',_reviewActive:!!entry};
+ });
+ return {hideShare:true,all:mapped,filters:[['_reviewActive',true]],entities:entries.map(e=>e._ps),names:new Map(entries.map(e=>[e._ps,e['PS Name']]))};
+}
+(()=>{
+ const tab=document.createElement('button');tab.className='nav-item';tab.dataset.section='psSalesReview';tab.textContent='PS Sales Review';
+ document.querySelector('.nav-item[data-section="dealers"]').after(tab);
+ const section=$('dealersSection').cloneNode(true);section.id='psSalesReviewSection';
+ section.querySelector('h2').textContent='PS Sales Review';
+ section.querySelector('.score-note').textContent='Current ACTIVE promoters matching the area, subregion, dealer and channel filters are shown, including zero sales. All universal filters apply to sales and monthly comparisons.';
+ section.querySelector('tbody').id='psSalesReviewBody';section.querySelector('th').textContent='Promoter';
+ section.querySelector('thead tr').cells[2].remove();section.querySelector('tbody td').colSpan=10;
+ section.querySelector('table').setAttribute('aria-label','PS Sales Review');
+ $('dealersSection').after(section);
+ const notice=document.createElement('p');notice.className='score-note';notice.setAttribute('role','status');section.querySelector('.table-wrap').before(notice);
+ function review(){
+  const roster=window.evisRoster.getRoster();
+  notice.textContent=roster?'':'Loading the active HR roster. Sales results will appear after verification.';
+  const data=psSalesReviewData(salesEnriched(),roster,{area:selected('areaFilter'),asm:selected('asmFilter'),customer:selected('customerFilter'),channel:selected('channelFilter')},storeMap());
+  renderModelHistory([], 'psSalesReviewBody','_reviewPs','Promoter',data);
+ }
+ const style=document.createElement('style');style.textContent='#psSalesReviewBody .model-rate{white-space:nowrap;font-weight:600}#psSalesReviewBody .up{color:#238344}#psSalesReviewBody .down{color:#c63c3c}#psSalesReviewBody .steady{color:#286bc1}#psSalesReviewBody td{font-variant-numeric:tabular-nums}';document.head.appendChild(style);
+ window.evisPsSalesReview={render:review};const before=render;render=()=>{before();review();};
 })();

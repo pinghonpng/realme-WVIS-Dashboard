@@ -18,25 +18,26 @@ function modelHistoryData(all,month,filters,groupKey='_model'){
   prior.rows.filter(r=>r._date.getDate()<=previousEnd).forEach(r=>{const model=r[groupKey]||'Unknown';matched.set(model,(matched.get(model)||0)+r._qty);});
   return {months,buckets,cutoff,previousEnd,matched,matchedAvailable:cutoff>0&&prior.latest>=previousEnd};
 }
-function renderModelHistory(rows,bodyId='modelTableBody',groupKey='_model',entityLabel='Model'){
+function renderModelHistory(rows,bodyId='modelTableBody',groupKey='_model',entityLabel='Model',options={}){
   const month=selected('monthFilter');if(!/^\d{4}-\d{2}$/.test(month))return;
   const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
-  const history=modelHistoryData(salesEnriched(),month,filters,groupKey),{months,buckets}=history;
+  const history=modelHistoryData(options.all||salesEnriched(),month,[...filters,...(options.filters||[])],groupKey),{months,buckets}=history;
   const past=[months[3],months[2],months[1]],table=$(bodyId).closest('table');
   const pair=(from,to)=>from.slice(0,4)===to.slice(0,4)?monthName(from).replace(/\s*\d{4}/,'')+' → '+monthName(to):monthName(from)+' → '+monthName(to);
-  const labels=[entityLabel,'Sales','Market Share',monthName(months[1]),pair(months[1],month),...past.map(m=>monthName(m)),...past.map(m=>pair(modelMonthOffset(m,-1),m))];
+  const leading=options.hideShare?4:5;
+  const labels=[entityLabel,'Sales',...(options.hideShare?[]:['Market Share']),monthName(months[1]),pair(months[1],month),...past.map(m=>monthName(m)),...past.map(m=>pair(modelMonthOffset(m,-1),m))];
   table.classList.add('model-history-table');
-  if(!table.tHead.querySelector('[data-sort-column]'))table.tHead.innerHTML='<tr>'+labels.slice(0,5).map((label,i)=>`<th rowspan="2" scope="col" data-sort-column="${i}">${escapeHtml(label)}</th>`).join('')+'<th colspan="3" scope="colgroup">Monthly Sales</th><th colspan="3" scope="colgroup">Increase Rate</th></tr><tr>'+labels.slice(5).map((label,i)=>`<th scope="col" data-sort-column="${i+5}">${escapeHtml(label)}</th>`).join('')+'</tr>';
+  if(!table.tHead.querySelector('[data-sort-column]'))table.tHead.innerHTML='<tr>'+labels.slice(0,leading).map((label,i)=>`<th rowspan="2" scope="col" data-sort-column="${i}">${escapeHtml(label)}</th>`).join('')+'<th colspan="3" scope="colgroup">Monthly Sales</th><th colspan="3" scope="colgroup">Increase Rate</th></tr><tr>'+labels.slice(leading).map((label,i)=>`<th scope="col" data-sort-column="${i+leading}">${escapeHtml(label)}</th>`).join('')+'</tr>';
   else [...table.tHead.querySelectorAll('[data-sort-column]')].forEach((cell,i)=>{const button=cell.querySelector('.table-sort-button');if(button){button.setAttribute('aria-label','Sort by '+labels[i]);button.textContent=labels[i]+({'ascending':' ↑','descending':' ↓'}[cell.getAttribute('aria-sort')]||' ↕');}else cell.textContent=labels[i];});
-  const models=uniq([...buckets.get(month).sales.keys()]);
-  const total=rows.reduce((sum,r)=>sum+r._qty,0),current=buckets.get(month);
+  const models=options.entities||uniq([...buckets.get(month).sales.keys()]);
+  const current=buckets.get(month),total=options.entities?[...current.sales.values()].reduce((sum,qty)=>sum+qty,0):rows.reduce((sum,r)=>sum+r._qty,0);
   const complete=m=>{const [y,num]=m.split('-').map(Number);return buckets.get(m).latest===new Date(y,num,0).getDate();};
   const monthly=(m,model)=>buckets.get(m).latest?buckets.get(m).sales.get(model)||0:null;
   $(bodyId).innerHTML=models.map(model=>{
     const sales=current.sales.get(model)||0,prior=history.matchedAvailable?history.matched.get(model)||0:null;
-    return `<tr><td><strong>${escapeHtml(model)}</strong></td><td>${fmt(sales)}</td><td>${pct(total?sales/total*100:0)}</td><td>${prior===null?'—':fmt(prior)}</td>${modelRateCell(current.latest?sales:null,prior)}${past.map(m=>{const value=monthly(m,model);return `<td>${value===null?'—':fmt(value)+(complete(m)?'':' *')}</td>`;}).join('')}${past.map(m=>{const prev=modelMonthOffset(m,-1);return modelRateCell(complete(m)?monthly(m,model):null,complete(prev)?monthly(prev,model):null);}).join('')}</tr>`;
+    return `<tr><td><strong>${escapeHtml(options.names?.get(model)||model)}</strong></td><td>${fmt(sales)}</td>${options.hideShare?'':`<td>${pct(total?sales/total*100:0)}</td>`}<td>${prior===null?'—':fmt(prior)}</td>${modelRateCell(current.latest?sales:null,prior)}${past.map(m=>{const value=monthly(m,model);return `<td>${value===null?'—':fmt(value)+(complete(m)?'':' *')}</td>`;}).join('')}${past.map(m=>{const prev=modelMonthOffset(m,-1);return modelRateCell(complete(m)?monthly(m,model):null,complete(prev)?monthly(prev,model):null);}).join('')}</tr>`;
   }).join('')||emptyRow(labels.length);
-  table.closest('article').querySelector('.card-head p').textContent=`Current sales: ${monthName(month)} 1–${history.cutoff||'—'}. Previous period: ${monthName(months[1])} 1–${history.previousEnd||'—'}. Market share uses selected-view units. IR = (new − previous) / previous. Blue line: ±1%; green: increase; red: decrease. New = zero prior sales. Past months show all uploaded sales; * means data ends before month-end, and incomplete/missing comparisons show —. All filters apply to both periods.`;
+  table.closest('article').querySelector('.card-head p').textContent=`Current sales: ${monthName(month)} 1–${history.cutoff||'—'}. Previous period: ${monthName(months[1])} 1–${history.previousEnd||'—'}. ${options.hideShare?'':'Market share uses selected-view units. '}IR = (new − previous) / previous. Blue line: ±1%; green: increase; red: decrease. New = zero prior sales. Past months show all uploaded sales; * means data ends before month-end, and incomplete/missing comparisons show —. All filters apply to both periods.`;
 }
 renderModelTable=renderModelHistory;
 const modelHistoryStyle=document.createElement('style');
