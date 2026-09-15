@@ -2,7 +2,7 @@
 (()=>{
 const config={url:'https://fuvlhwoauzvgrbakihsj.supabase.co',publishableKey:'sb_publishable_Il7KA51StVzo-C3i0to6-Q_0iJY4vXt'};
 const origin=new URL(config.url).origin,slots=['fixed','current','scores'];
-let manifest=null,session=null,admin=false,busy=false,loading=false;
+let manifest=null,session=null,admin=false,busy=false,loading=false,hireDatesMissing=false;
 const cache=new Map();
 const say=message=>{$('sharedStatus').textContent=message;};
 async function request(path,options={}){
@@ -12,8 +12,8 @@ async function request(path,options={}){
 }
 function canonicalSales(file){
  if(!file)return null;
- const headers=['Date','Store ID','Store Name','Model','Qty','Area','ASM','Customer','Channel','PS ID','PS Name','Sales Amount'];
- const aliases=[['Date','Sales Date','Sellout Date','Transaction Date'],['Store ID','StoreID','store_id','Store Code','Outlet ID'],['Store Name','Store','Outlet','Shop'],['Model','SKU','Product','Model Name'],['Qty','Quantity','Sales','Units','Sellout Qty','Sales Qty'],['Area','Province','Territory'],['ASM','Manager','Sales Manager'],['Customer','Account','Dealer','Client'],['Channel','Store Type','Channel Type'],['PS ID','Promoter ID','Frontliner ID','PS','Promoter'],['PS Name','Promoter Name','Frontliner Name'],['Sales Amount','Sales Value','Amount']];
+ const headers=['Date','Store ID','Store Name','Model','Qty','Area','ASM','Customer','Channel','PS ID','PS Name','Sales Amount','SR Hire Date'];
+ const aliases=[['Date','Sales Date','Sellout Date','Transaction Date'],['Store ID','StoreID','store_id','Store Code','Outlet ID'],['Store Name','Store','Outlet','Shop'],['Model','SKU','Product','Model Name'],['Qty','Quantity','Sales','Units','Sellout Qty','Sales Qty'],['Area','Province','Territory'],['ASM','Manager','Sales Manager'],['Customer','Account','Dealer','Client'],['Channel','Store Type','Channel Type'],['PS ID','Promoter ID','Frontliner ID','PS','Promoter'],['PS Name','Promoter Name','Frontliner Name'],['Sales Amount','Sales Value','Amount'],['SR Hire Date','Hire Date']];
  const rows=[];
  for(const source of file.rows){
   if(!normalize(find(source,'Date','Sales Date','Sellout Date','Transaction Date','Store ID','Store Code','Store Name','Model','Qty')))continue;
@@ -43,14 +43,15 @@ async function download(meta){
 }
 function controls(){
  window.evisRoster?.setAdmin(admin&&!busy);window.evisPriceRanges?.setAdmin(admin&&!busy);
- ['fixedFile','currentFile','scoreFile','clearFixedBtn','clearCurrentBtn','sharedMigrate'].forEach(id=>{if($(id))$(id).disabled=!admin||busy;});
+ ['fixedFile','currentFile','scoreFile','clearFixedBtn','clearCurrentBtn','sharedMigrate','sharedHireDates'].forEach(id=>{if($(id))$(id).disabled=!admin||busy;});
  $('sharedLogin').hidden=admin;$('sharedLogout').hidden=!admin;$('sharedAdmin').textContent=admin?'Administrator: lucasngrealme@gmail.com':'Viewer · shared data';
  const needsAmounts=['fixed','current'].some(slot=>state.uploads[slot]?.rows.some(r=>normalize(r['Sales Amount'])===''));
  $('sharedMigrate').hidden=!admin||(manifest?.version!==0&&!needsAmounts);
+ if($('sharedHireDates'))$('sharedHireDates').hidden=!admin||!hireDatesMissing;
  $('sharedMigrate').textContent=manifest?.version===0?'Publish this browser’s saved files':'Restore sales amounts from this browser’s saved files';
 }
 function installFiles(files,next){
- files={...files};for(const slot of ['fixed','current']){const f=files[slot];if(f&&!f.headers.includes('Sales Amount'))files[slot]={...f,headers:[...f.headers,'Sales Amount'],rows:f.rows.map(r=>({...r,'Sales Amount':''}))};}
+ files={...files};hireDatesMissing=['fixed','current'].some(slot=>files[slot]&&!files[slot].headers.includes('SR Hire Date'));for(const slot of ['fixed','current']){let f=files[slot];for(const key of ['Sales Amount','SR Hire Date'])if(f&&!f.headers.includes(key))f={...f,headers:[...f.headers,key],rows:f.rows.map(r=>({...r,[key]:''}))};files[slot]=f;}
  validateFiles(files);
  const nextCatalog=files.scores?validateScoreRows(files.scores.rows):new Map();
  state.uploads={fixed:files.fixed||null,current:files.current||null};scoreFile=files.scores||null;scoreCatalog=nextCatalog;
@@ -102,7 +103,7 @@ async function login(event){
  }catch(error){admin=false;session=null;controls();say(error.message);}
 }
 const panel=document.createElement('article');panel.className='card table-card';
-panel.innerHTML='<h2>Shared Dashboard Data</h2><p id="sharedVersion">Connecting to shared data…</p><p id="sharedStatus" role="status"></p><p id="sharedAdmin"></p><form id="sharedLogin"><label for="sharedPassword">Administrator password · lucasngrealme@gmail.com</label><input id="sharedPassword" type="password" autocomplete="current-password" required><button class="secondary-btn" type="submit">Administrator sign-in</button></form><button class="secondary-btn" id="sharedLogout" hidden>Sign out</button><button class="secondary-btn" id="sharedMigrate" hidden>Publish this browser’s saved files</button><p class="score-note">Sales and model-score updates are shared. Viewers need no sign-in. Only administrators can upload or remove shared files. PS target edits apply only to your own browser.</p>';
+panel.innerHTML='<h2>Shared Dashboard Data</h2><p id="sharedVersion">Connecting to shared data…</p><p id="sharedStatus" role="status"></p><p id="sharedAdmin"></p><form id="sharedLogin"><label for="sharedPassword">Administrator password · lucasngrealme@gmail.com</label><input id="sharedPassword" type="password" autocomplete="current-password" required><button class="secondary-btn" type="submit">Administrator sign-in</button></form><button class="secondary-btn" id="sharedLogout" hidden>Sign out</button><button class="secondary-btn" id="sharedMigrate" hidden>Publish this browser’s saved files</button><button class="secondary-btn" id="sharedHireDates" hidden>Restore hire dates from saved files</button><p class="score-note">Sales and model-score updates are shared. Viewers need no sign-in. Only administrators can upload or remove shared files. PS target edits apply only to your own browser.</p>';
 $('dataSection').prepend(panel);
 document.querySelectorAll('#dataSection .source-summary strong').forEach(el=>{if(el.textContent==='Browser')el.textContent='Shared cloud';});
 document.querySelectorAll('#dataSection .score-note').forEach(el=>{if(el.textContent.startsWith('Saved in this browser.'))el.textContent=el.textContent.replace('Saved in this browser.','Published for all viewers.');});
@@ -112,10 +113,22 @@ $('sharedLogout').addEventListener('click',async()=>{try{await request('/auth/v1
 function restoreAmounts(published,saved){
  if(!published)return null;
  if(!saved)throw new Error('The original sales file is not saved in this browser. Upload the source files again.');
- const source=canonicalSales(saved),keys=source.headers.filter(k=>k!=='Sales Amount');
+ const source=canonicalSales(saved),keys=source.headers.filter(k=>k!=='Sales Amount'&&k!=='SR Hire Date');
  if(source.rows.length!==published.rows.length||source.rows.some((r,i)=>keys.some(k=>normalize(r[k])!==normalize(published.rows[i][k]))))throw new Error('Saved sales differ from the published data. Upload the latest source files instead.');
  return {...published,headers:source.headers,rows:published.rows.map((r,i)=>({...r,'Sales Amount':normalize(r['Sales Amount'])!==''?r['Sales Amount']:source.rows[i]['Sales Amount']}))};
 }
+function restoreHireDates(published,saved){
+ if(!published)return null;
+ if(!saved||!saved.rows.some(r=>Object.keys(r).some(k=>/hire date/i.test(k))))throw new Error('The original sales file with Column Z is not saved in this browser. Upload the raw sales files again.');
+ const source=canonicalSales(saved),keys=source.headers.filter(k=>k!=='SR Hire Date');
+ if(source.rows.length!==published.rows.length||source.rows.some((r,i)=>keys.some(k=>normalize(r[k])!==normalize(published.rows[i][k]))))throw new Error('Saved sales differ from the published data. Upload the latest raw files instead.');
+ return {...published,headers:source.headers,rows:published.rows.map((r,i)=>({...r,'SR Hire Date':source.rows[i]['SR Hire Date']}))};
+}
+$('sharedHireDates').addEventListener('click',async()=>{try{
+ say('Checking original files and restoring Column Z hire dates…');
+ const [fixed,current]=await Promise.all([idbGet('fixed'),idbGet('current')]);
+ await publish({fixed:restoreHireDates(state.uploads.fixed,fixed),current:restoreHireDates(state.uploads.current,current)});
+}catch(error){say(error.message);}});
 $('sharedMigrate').addEventListener('click',async()=>{try{
  say('Reading and validating saved sales files…');
  const [fixed,current,scores]=await Promise.all([idbGet('fixed'),idbGet('current'),idbGet('modelScores')]);

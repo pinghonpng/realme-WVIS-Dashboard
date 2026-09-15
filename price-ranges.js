@@ -47,6 +47,6 @@ function transactionPriceRange(row,ranges){const srp=rowSrp(row);return srp===nu
  const beforeEnriched=salesEnriched;salesEnriched=()=>{const rows=beforeEnriched();if(rows!==lastRows||ranges!==lastRanges){lastRows=rows;lastRanges=ranges;enriched=rows.map(r=>({...r,_priceRange:transactionPriceRange(r,ranges)}));}return enriched;};
  const beforeFilter=filterData;filterData=()=>{beforeFilter();state.filteredSales=state.filteredSales.filter(r=>passes(r._priceRange,selected('priceRangeFilter')));};
  $('priceRangeFilter').addEventListener('change',()=>render());
- window.evisPriceRanges={setConfig,setAdmin:value=>{allowed=value;controls();}};
+ window.evisPriceRanges={getRanges:()=>ranges.map(r=>({...r})),setConfig,setAdmin:value=>{allowed=value;controls();}};
  options();draw();say('No price ranges defined yet. Add your ranges, then save.');
 })();
