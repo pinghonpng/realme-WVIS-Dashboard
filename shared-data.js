@@ -12,14 +12,15 @@ async function request(path,options={}){
 }
 function canonicalSales(file){
  if(!file)return null;
- const headers=['Date','Store ID','Store Name','Model','Qty','Area','ASM','Customer','Channel','PS ID','PS Name'];
- const aliases=[['Date','Sales Date','Sellout Date','Transaction Date'],['Store ID','StoreID','store_id','Store Code','Outlet ID'],['Store Name','Store','Outlet','Shop'],['Model','SKU','Product','Model Name'],['Qty','Quantity','Sales','Units','Sellout Qty','Sales Qty'],['Area','Province','Territory'],['ASM','Manager','Sales Manager'],['Customer','Account','Dealer','Client'],['Channel','Store Type','Channel Type'],['PS ID','Promoter ID','Frontliner ID','PS','Promoter'],['PS Name','Promoter Name','Frontliner Name']];
+ const headers=['Date','Store ID','Store Name','Model','Qty','Area','ASM','Customer','Channel','PS ID','PS Name','Sales Amount'];
+ const aliases=[['Date','Sales Date','Sellout Date','Transaction Date'],['Store ID','StoreID','store_id','Store Code','Outlet ID'],['Store Name','Store','Outlet','Shop'],['Model','SKU','Product','Model Name'],['Qty','Quantity','Sales','Units','Sellout Qty','Sales Qty'],['Area','Province','Territory'],['ASM','Manager','Sales Manager'],['Customer','Account','Dealer','Client'],['Channel','Store Type','Channel Type'],['PS ID','Promoter ID','Frontliner ID','PS','Promoter'],['PS Name','Promoter Name','Frontliner Name'],['Sales Amount','Sales Value','Amount']];
  const rows=[];
  for(const source of file.rows){
   if(!normalize(find(source,'Date','Sales Date','Sellout Date','Transaction Date','Store ID','Store Code','Store Name','Model','Qty')))continue;
   const row=Object.fromEntries(headers.map((h,i)=>[h,normalize(find(source,...aliases[i]))]));
   const date=parseDate(row.Date),quantity=Number(row.Qty.replace(/,/g,''));
   if(isNaN(date)||!row.Model||row.Qty===''||!Number.isFinite(quantity))throw new Error('A sales row is missing a valid date, model or quantity. Correct the file before publishing.');
+  if(row['Sales Amount']!==''){const amount=Number(row['Sales Amount'].replace(/(?:PHP|₱|,|\s)/gi,''));if(!Number.isFinite(amount))throw new Error('A sales row contains an invalid Sales Amount. Correct the file before publishing.');row['Sales Amount']=String(amount);}
   row.Date=modelMonthKey(date)+'-'+String(date.getDate()).padStart(2,'0');row.Qty=String(quantity);rows.push(row);
  }
  if(!rows.length)throw new Error('No valid sales rows found.');
@@ -43,9 +44,12 @@ async function download(meta){
 function controls(){
  ['fixedFile','currentFile','scoreFile','clearFixedBtn','clearCurrentBtn','sharedMigrate'].forEach(id=>{if($(id))$(id).disabled=!admin||busy;});
  $('sharedLogin').hidden=admin;$('sharedLogout').hidden=!admin;$('sharedAdmin').textContent=admin?'Administrator: lucasngrealme@gmail.com':'Viewer · shared data';
- $('sharedMigrate').hidden=!admin||manifest?.version!==0;
+ const needsAmounts=['fixed','current'].some(slot=>state.uploads[slot]?.rows.some(r=>normalize(r['Sales Amount'])===''));
+ $('sharedMigrate').hidden=!admin||(manifest?.version!==0&&!needsAmounts);
+ $('sharedMigrate').textContent=manifest?.version===0?'Publish this browser’s saved files':'Restore sales amounts from this browser’s saved files';
 }
 function installFiles(files,next){
+ files={...files};for(const slot of ['fixed','current']){const f=files[slot];if(f&&!f.headers.includes('Sales Amount'))files[slot]={...f,headers:[...f.headers,'Sales Amount'],rows:f.rows.map(r=>({...r,'Sales Amount':''}))};}
  validateFiles(files);
  const nextCatalog=files.scores?validateScoreRows(files.scores.rows):new Map();
  state.uploads={fixed:files.fixed||null,current:files.current||null};scoreFile=files.scores||null;scoreCatalog=nextCatalog;
@@ -104,7 +108,20 @@ document.querySelectorAll('#dataSection .score-note').forEach(el=>{if(el.textCon
 const badge=document.createElement('p');badge.id='sharedBadge';badge.className='score-note';badge.textContent='Shared dataset · see Data Sources for version and update time';document.querySelector('.topbar').after(badge);
 $('sharedLogin').addEventListener('submit',login);
 $('sharedLogout').addEventListener('click',async()=>{try{await request('/auth/v1/logout',{method:'POST'})}catch{}session=null;admin=false;controls();say('Signed out. Viewing shared data.');});
-$('sharedMigrate').addEventListener('click',async()=>{try{const [fixed,current,scores]=await Promise.all([idbGet('fixed'),idbGet('current'),idbGet('modelScores')]);if(!fixed&&!current)throw new Error('No saved sales files in this browser. Upload the sales files instead.');await publish({fixed:canonicalSales(fixed),current:canonicalSales(current),scores:canonicalScores(scores)});}catch(error){say(error.message);}});
+function restoreAmounts(published,saved){
+ if(!published)return null;
+ if(!saved)throw new Error('The original sales file is not saved in this browser. Upload the source files again.');
+ const source=canonicalSales(saved),keys=source.headers.filter(k=>k!=='Sales Amount');
+ if(source.rows.length!==published.rows.length||source.rows.some((r,i)=>keys.some(k=>normalize(r[k])!==normalize(published.rows[i][k]))))throw new Error('Saved sales differ from the published data. Upload the latest source files instead.');
+ return {...published,headers:source.headers,rows:published.rows.map((r,i)=>({...r,'Sales Amount':normalize(r['Sales Amount'])!==''?r['Sales Amount']:source.rows[i]['Sales Amount']}))};
+}
+$('sharedMigrate').addEventListener('click',async()=>{try{
+ say('Reading and validating saved sales files…');
+ const [fixed,current,scores]=await Promise.all([idbGet('fixed'),idbGet('current'),idbGet('modelScores')]);
+ if(!fixed&&!current)throw new Error('No saved sales files in this browser. Upload the sales files instead.');
+ if(manifest?.version===0)await publish({fixed:canonicalSales(fixed),current:canonicalSales(current),scores:canonicalScores(scores)});
+ else await publish({fixed:restoreAmounts(state.uploads.fixed,fixed),current:restoreAmounts(state.uploads.current,current)});
+}catch(error){say(error.message);}});
 handleUpload=async(kind,file)=>{if(!file)return;try{await publish({[kind]:canonicalSales(await parseSalesFile(file))});}catch(error){showError(error.message);toast(error.message,true);}finally{$(kind==='fixed'?'fixedFile':'currentFile').value='';}};
 uploadScores=async(file)=>{if(!file)return;try{await publish({scores:canonicalScores(await parseSalesFile(file))});$('scoreError').textContent='';}catch(error){$('scoreError').textContent=error.message;}finally{$('scoreFile').value='';}};
 clearUpload=async(kind)=>{try{await publish({[kind]:null});}catch(error){showError(error.message);}};
