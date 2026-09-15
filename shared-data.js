@@ -42,6 +42,7 @@ async function download(meta){
  const file=JSON.parse(text);cache.set(meta.path,file);return file;
 }
 function controls(){
+ window.evisRoster?.setAdmin(admin&&!busy);
  ['fixedFile','currentFile','scoreFile','clearFixedBtn','clearCurrentBtn','sharedMigrate'].forEach(id=>{if($(id))$(id).disabled=!admin||busy;});
  $('sharedLogin').hidden=admin;$('sharedLogout').hidden=!admin;$('sharedAdmin').textContent=admin?'Administrator: lucasngrealme@gmail.com':'Viewer · shared data';
  const needsAmounts=['fixed','current'].some(slot=>state.uploads[slot]?.rows.some(r=>normalize(r['Sales Amount'])===''));
@@ -54,7 +55,7 @@ function installFiles(files,next){
  const nextCatalog=files.scores?validateScoreRows(files.scores.rows):new Map();
  state.uploads={fixed:files.fixed||null,current:files.current||null};scoreFile=files.scores||null;scoreCatalog=nextCatalog;
  state.raw=synthesizeReferences({...baseRaw(),sales:combinedUploads()});state.live=true;
- manifest=next;buildFilters();render();renderUploadUI();renderScoreFile();
+ manifest=next;window.evisRoster?.setConfig(next.files.activePromoters);buildFilters();render();renderUploadUI();renderScoreFile();
  if(!state.raw.sales.length)$('periodLabel').textContent='Waiting for shared sales data';
  $('connectionDot').classList.add('live');$('connectionText').textContent='Shared sales data';
  const updated=next.updated_at?new Date(next.updated_at).toLocaleString():'Not published yet';
@@ -129,5 +130,7 @@ restoreUploads=async()=>{await sync();return true;};refresh=sync;
 const previousScoreFile=renderScoreFile;renderScoreFile=()=>{previousScoreFile();controls();};
 setInterval(()=>{if(document.visibilityState==='visible')sync();},60000);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')sync();});
+window.evisSaveRoster=async next=>{if(!admin)throw new Error('Administrator sign-in is required.');if(busy||loading||!manifest)throw new Error('Wait for the current update to finish.');busy=true;controls();try{await request('/rest/v1/rpc/evis_set_roster',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sheet_url:next.url,sheet_tab:next.tab,expected_version:manifest.version})});}finally{busy=false;controls();}await sync();};
 controls();
 })();
+
