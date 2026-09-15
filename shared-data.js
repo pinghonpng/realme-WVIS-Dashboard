@@ -1,6 +1,5 @@
-// Shared dashboard data; setup link used until initial publication is verified.
+// Shared sales and model-score data for all dashboard viewers.
 (()=>{
-if(!new URLSearchParams(location.search).has('sharedSetup'))return;
 const config={url:'https://fuvlhwoauzvgrbakihsj.supabase.co',publishableKey:'sb_publishable_Il7KA51StVzo-C3i0to6-Q_0iJY4vXt'};
 const origin=new URL(config.url).origin,slots=['fixed','current','scores'];
 let manifest=null,session=null,admin=false,busy=false,loading=false;
@@ -52,6 +51,7 @@ function installFiles(files,next){
  state.uploads={fixed:files.fixed||null,current:files.current||null};scoreFile=files.scores||null;scoreCatalog=nextCatalog;
  state.raw=synthesizeReferences({...baseRaw(),sales:combinedUploads()});state.live=true;
  manifest=next;buildFilters();render();renderUploadUI();renderScoreFile();
+ if(!state.raw.sales.length)$('periodLabel').textContent='Waiting for shared sales data';
  $('connectionDot').classList.add('live');$('connectionText').textContent='Shared sales data';
  const updated=next.updated_at?new Date(next.updated_at).toLocaleString():'Not published yet';
  $('sharedVersion').textContent='Data version '+next.version+' · Updated '+updated;$('sharedBadge').textContent=$('sharedVersion').textContent;$('lastUpdated').textContent=updated;
@@ -99,6 +99,7 @@ async function login(event){
 const panel=document.createElement('article');panel.className='card table-card';
 panel.innerHTML='<h2>Shared Dashboard Data</h2><p id="sharedVersion">Connecting to shared data…</p><p id="sharedStatus" role="status"></p><p id="sharedAdmin"></p><form id="sharedLogin"><label for="sharedPassword">Administrator password · lucasngrealme@gmail.com</label><input id="sharedPassword" type="password" autocomplete="current-password" required><button class="secondary-btn" type="submit">Administrator sign-in</button></form><button class="secondary-btn" id="sharedLogout" hidden>Sign out</button><button class="secondary-btn" id="sharedMigrate" hidden>Publish this browser’s saved files</button><p class="score-note">Sales and model-score updates are shared. Viewers need no sign-in. Only administrators can upload or remove shared files. PS target edits apply only to your own browser.</p>';
 $('dataSection').prepend(panel);
+document.querySelectorAll('#dataSection .source-summary strong').forEach(el=>{if(el.textContent==='Browser')el.textContent='Shared cloud';});
 document.querySelectorAll('#dataSection .score-note').forEach(el=>{if(el.textContent.startsWith('Saved in this browser.'))el.textContent=el.textContent.replace('Saved in this browser.','Published for all viewers.');});
 const badge=document.createElement('p');badge.id='sharedBadge';badge.className='score-note';badge.textContent='Shared dataset · see Data Sources for version and update time';document.querySelector('.topbar').after(badge);
 $('sharedLogin').addEventListener('submit',login);
