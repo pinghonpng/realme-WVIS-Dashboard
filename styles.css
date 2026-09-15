@@ -18,3 +18,11 @@ input,textarea{font-family:inherit}
 .dashboard-section p:not([role="status"]):not([role="alert"]):not(#sharedVersion):not(#sharedAdmin):not(#activeRosterNotice):not(#customerTypeNotice):not(#missingModels){display:none!important}
 #top50DealersStatus{display:none!important}
 .dashboard-section p[role="status"]:empty,.dashboard-section p[role="alert"]:empty{display:none!important}
+
+/* Secondary tabs sit above the connection status in a compact sidebar group. */
+.sidebar{overflow-y:auto}
+.sidebar .brand,.sidebar .nav,.sidebar-secondary-nav,.sidebar-foot{flex-shrink:0}
+.sidebar-secondary-nav{display:flex;flex-direction:column;gap:2px;margin-top:auto;padding-top:20px}
+.sidebar-secondary-nav .nav-item{font-size:11px;line-height:1.4;padding:7px 10px;border-radius:7px}
+.sidebar-secondary-nav+.sidebar-foot{margin-top:6px}
+@media(max-width:760px){.sidebar-secondary-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:10px;padding-top:10px;border-top:1px solid #303238}.sidebar-secondary-nav .nav-item{white-space:normal;min-height:40px}}
