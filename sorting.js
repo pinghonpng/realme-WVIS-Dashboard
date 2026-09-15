@@ -54,6 +54,7 @@ function refreshTableSorting(){
   prepareSortableTables();
   refreshTableSummaries();
   prepareTableVisibility();
+  coverInactiveCustomerTypes();
   document.querySelectorAll('table tbody').forEach(body=>tableSortObserver.observe(body,{childList:true,subtree:true,characterData:true}));
 }
 const tableSortStyle=document.createElement('style');
@@ -126,3 +127,16 @@ function prepareTableVisibility(){
  });
 }
 const tableVisibilityStyle=document.createElement('style');tableVisibilityStyle.textContent='.card-head>.secondary-btn{flex-shrink:0;margin-left:12px}.table-visibility-heading>h2,.table-visibility-heading>h3{margin:0}.table-cohort-heading{margin-top:26px;margin-bottom:12px}.table-visibility-summary{min-height:40px;align-content:center}.table-visibility-summary>.secondary-btn{float:right;margin-left:12px}.table-visibility-summary::after{content:"";display:table;clear:both}.table-wrap[hidden]{display:none!important}';document.head.appendChild(tableVisibilityStyle);
+
+// Visual cover only: keep row values available to sorting and total calculations.
+function coverInactiveCustomerTypes(){
+ document.querySelectorAll('table').forEach(table=>{
+  if(!table.tHead)return;
+  const column=sortableTableHeaders(table).findIndex(h=>/^(customer type|channel)$/i.test(h.textContent.replace(/[↕↑↓]/g,'').trim()));
+  for(const body of table.tBodies)for(const row of body.rows){
+   const inactive=column>=0&&row.cells[column]?.textContent.trim().toLowerCase()==='inactive';
+   row.classList.toggle('inactive-customer-cover',inactive);
+  }
+ });
+}
+const inactiveCustomerStyle=document.createElement('style');inactiveCustomerStyle.textContent='table tbody tr.inactive-customer-cover,table tbody tr.inactive-customer-cover>*,table tbody tr.inactive-customer-cover>* *{background:#000!important;color:#000!important;border-color:#000!important;text-shadow:none!important}';document.head.appendChild(inactiveCustomerStyle);
