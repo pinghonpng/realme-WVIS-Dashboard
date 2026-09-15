@@ -106,7 +106,7 @@ function mountScoring(){
 
 // Install before the existing DOMContentLoaded handler restores the sales files.
 const originalSalesEnriched=salesEnriched;
-salesEnriched=()=>addScoreFields(originalSalesEnriched());
+let scoreSalesRef,scoreStoresRef,scoreCatalogRef,baseScoreRows=[],cachedScoreRows=[]; salesEnriched=()=>{if(scoreSalesRef!==state.raw.sales||scoreStoresRef!==state.raw.stores){baseScoreRows=originalSalesEnriched();scoreSalesRef=state.raw.sales;scoreStoresRef=state.raw.stores;scoreCatalogRef=null;}if(scoreCatalogRef!==scoreCatalog){cachedScoreRows=addScoreFields(baseScoreRows);scoreCatalogRef=scoreCatalog;}return cachedScoreRows;};
 const originalFilterData=filterData;
 filterData=()=>{originalFilterData();state.filteredSales=state.filteredSales.filter(r=>passes(r._series,selected('seriesFilter')))};
 const originalBuildFilters=buildFilters;
