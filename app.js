@@ -176,12 +176,23 @@ function renderModelTable(rows){
   const totalModelSales=rows.reduce((sum,row)=>sum+row._qty,0); const salesMap=new Map(sumBy(rows,'_model')); const invMap=new Map(sumBy(inventoryRows().map(r=>({...r,_qty:r._inv})),'_model')); const targetMap=new Map(); relevantTargets().forEach(t=>{const m=find(t,'Model','SKU','Product');targetMap.set(m,(targetMap.get(m)||0)+n(find(t,'Target','Qty Target','Sales Target')))});
   const models=uniq([...salesMap.keys(),...targetMap.keys(),...invMap.keys()]); $('modelTableBody').innerHTML=models.map(m=>{const s=salesMap.get(m)||0,t=targetMap.get(m)||0,i=invMap.get(m)||0,a=totalModelSales?s/totalModelSales*100:0;return `<tr><td><strong>${escapeHtml(m)}</strong></td><td>${fmt(s)}</td><td>${fmt(t)}</td><td>${pct(a)}</td><td>${fmt(i)}</td></tr>`}).join('')||emptyRow(5);
 }
-function storeAggregates(rows){ const sm=storeMap(), map=new Map(); rows.forEach(r=>map.set(r._sid,(map.get(r._sid)||0)+r._qty)); const inv=new Map(); inventoryRows().forEach(r=>inv.set(r._sid,(inv.get(r._sid)||0)+r._inv)); return (state.raw.stores||[]).map(s=>{const sid=find(s,'Store ID','StoreID','store_id');return {sid,store:find(s,'Store Name','Store','Outlet'),customer:find(s,'Customer','Account','Dealer'),area:find(s,'Area','Province','Territory'),asm:find(s,'ASM','Manager'),channel:find(s,'Channel','Store Type'),sales:map.get(sid)||0,inventory:inv.get(sid)||0}}).filter(x=>passes(x.area,selected('areaFilter'))&&passes(x.asm,selected('asmFilter'))&&passes(x.customer,selected('customerFilter'))&&passes(x.channel,selected('channelFilter'))); }
+function storeAggregates(rows){
+ const groups=new Map(),inv=new Map();inventoryRows().forEach(r=>inv.set(r._sid,(inv.get(r._sid)||0)+r._inv));
+ rows.forEach(r=>{if(!groups.has(r._sid))groups.set(r._sid,[]);groups.get(r._sid).push(r);});
+ const labels=(items,key)=>uniq(items.map(r=>r[key])).join(', ');
+ return [...groups].map(([sid,items])=>({sid,store:labels(items,'_store')||sid,customer:labels(items,'_customer'),area:labels(items,'_area'),asm:labels(items,'_asm'),channel:labels(items,'_channel'),sales:items.reduce((sum,r)=>sum+r._qty,0),inventory:inv.get(sid)||0}));
+}
+function filteredPromoterAggregates(rows){
+ const groups=new Map(),names=new Map((state.raw.promoters||[]).map(p=>[find(p,'PS ID','Promoter ID','Frontliner ID'),find(p,'PS Name','Promoter','Name')]));
+ rows.forEach(r=>{if(!r._ps)return;if(!groups.has(r._ps))groups.set(r._ps,[]);groups.get(r._ps).push(r);});
+ const labels=(items,key)=>uniq(items.map(r=>r[key])).join(', ');
+ return [...groups].map(([pid,items])=>({pid,name:find(items[0],'PS Name','Promoter Name','Frontliner Name')||names.get(pid)||pid,store:labels(items,'_store'),area:labels(items,'_area'),asm:labels(items,'_asm'),sales:items.reduce((sum,r)=>sum+r._qty,0)})).sort((a,b)=>b.sales-a.sales);
+}
 function renderStores(rows){
   const a=storeAggregates(rows).sort((x,y)=>y.sales-x.sales); $('topStoresBody').innerHTML=a.slice(0,10).map(x=>`<tr><td><strong>${escapeHtml(x.store)}</strong></td><td>${escapeHtml(x.area)}</td><td>${escapeHtml(x.asm)}</td><td>${fmt(x.sales)}</td></tr>`).join('')||emptyRow(4); $('bottomStoresBody').innerHTML=[...a].sort((x,y)=>x.sales-y.sales).slice(0,10).map(x=>`<tr><td><strong>${escapeHtml(x.store)}</strong></td><td>${escapeHtml(x.area)}</td><td>${escapeHtml(x.asm)}</td><td>${fmt(x.sales)}</td></tr>`).join('')||emptyRow(4); $('storeTableBody').innerHTML=a.map(x=>`<tr><td><strong>${escapeHtml(x.store)}</strong></td><td>${escapeHtml(x.customer)}</td><td>${escapeHtml(x.area)}</td><td>${escapeHtml(x.asm)}</td><td>${escapeHtml(x.channel)}</td><td>${fmt(x.sales)}</td><td>${fmt(x.inventory)}</td></tr>`).join('')||emptyRow(7);
 }
 function renderPromoters(rows){
-  const sm=storeMap(), pSales=new Map(); rows.forEach(r=>{if(r._ps)pSales.set(r._ps,(pSales.get(r._ps)||0)+r._qty)}); const list=(state.raw.promoters||[]).map(p=>{const pid=find(p,'PS ID','Promoter ID','Frontliner ID'),sid=find(p,'Store ID','StoreID','store_id'),s=sm.get(sid)||{};return {pid,name:find(p,'PS Name','Promoter','Name')||pid,store:find(s,'Store Name','Store','Outlet'),area:find(s,'Area','Province','Territory'),asm:find(s,'ASM','Manager'),sales:pSales.get(pid)||0}}).filter(x=>passes(x.area,selected('areaFilter'))&&passes(x.asm,selected('asmFilter'))).sort((a,b)=>b.sales-a.sales);
+  const list=filteredPromoterAggregates(rows);
   const active=list.filter(x=>x.sales>0).length,total=list.length; $('psCountKpi').textContent=fmt(total); $('activePsKpi').textContent=fmt(active); $('salesPerPsKpi').textContent=fmt(total?rows.reduce((s,r)=>s+r._qty,0)/total:0,1); $('zeroPsKpi').textContent=fmt(total-active); $('psTableBody').innerHTML=list.map(x=>`<tr><td><strong>${escapeHtml(x.name)}</strong></td><td>${escapeHtml(x.store)}</td><td>${escapeHtml(x.area)}</td><td>${escapeHtml(x.asm)}</td><td>${fmt(x.sales)}</td><td><span class="badge ${x.sales>0?'good':'bad'}">${x.sales>0?'Active':'Zero sales'}</span></td></tr>`).join('')||emptyRow(6);
 }
 function renderInventory(rows){
