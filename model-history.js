@@ -156,12 +156,12 @@ const renderBeforeFinancials=render;render=()=>{renderBeforeFinancials();renderF
  toggle.addEventListener('click',()=>{hidden=!hidden;try{localStorage.setItem('evis.overviewChartsHidden',String(hidden));}catch{}apply();});apply();
  const style=document.createElement('style');style.textContent='.overview-chart-controls{display:flex;justify-content:flex-end;margin:0 0 14px}#overviewSection [hidden]{display:none!important}#overviewSection .model-history-table .model-rate{white-space:nowrap;font-weight:600}#overviewSection .model-history-table .up{color:#238344}#overviewSection .model-history-table .down{color:#c63c3c}#overviewSection .model-history-table .steady{color:#286bc1}';document.head.appendChild(style);
  const source=$('modelTableBody').closest('article');
- for(const [id,title,label] of [['seriesTableBody','Series Performance','Series'],['priceRangeTableBody','Price Range Performance','Price Range']]){
+ for(const [id,title,label] of [['seriesTableBody','Series Performance','Series'],['priceRangeTableBody','Price Range Performance','Price Range'],['areaPerformanceBody','Area Performance','Area'],['channelPerformanceBody','Channel Performance','Channel']]){
   const card=source.cloneNode(true);card.querySelector('h2').textContent=title;card.querySelector('tbody').id=id;
   card.querySelector('table').setAttribute('aria-label',title);card.querySelector('th').textContent=label;
   overview.append(card);
  }
- const before=render;render=()=>{before();renderModelHistory(state.filteredSales,'seriesTableBody','_series','Series');renderModelHistory(state.filteredSales,'priceRangeTableBody','_priceRange','Price Range');};
+ const before=render;render=()=>{before();renderModelHistory(state.filteredSales,'seriesTableBody','_series','Series');renderModelHistory(state.filteredSales,'priceRangeTableBody','_priceRange','Price Range');renderModelHistory(state.filteredSales,'areaPerformanceBody','_area','Area');renderModelHistory(state.filteredSales,'channelPerformanceBody','_channel','Channel');};
 })();
 
 // KPI comparisons use calendar-day coverage from the full upload, including zero-sale days.
@@ -178,7 +178,7 @@ function overviewRequiredRate(units,target,remaining){return target==null?null:u
 (()=>{
  const ids=['salesKpi','salesAmountKpi','aspKpi','premiumKpi','runRateKpi','requiredRunRateKpi'];
  ids.forEach(id=>{const note=document.createElement('div');note.id=id+'Comparison';note.className='overview-kpi-comparison';$(id).closest('article').append(note);});
- for(const [id,label] of [['modelTableBody','Model Performance'],['seriesTableBody','Series Performance'],['priceRangeTableBody','Price Range Performance']]){
+ for(const [id,label] of [['modelTableBody','Model Performance'],['seriesTableBody','Series Performance'],['priceRangeTableBody','Price Range Performance'],['areaPerformanceBody','Area Performance'],['channelPerformanceBody','Channel Performance']]){
   const card=$(id).closest('article'),content=$(id).closest('.table-wrap'),button=document.createElement('button');
   button.type='button';button.className='secondary-btn';button.setAttribute('aria-label','Hide '+label);content.id=id+'Content';button.setAttribute('aria-controls',content.id);
   card.querySelector('.card-head').append(button);let hidden=false;try{hidden=localStorage.getItem('evis.hidden.'+id)==='true';}catch{}

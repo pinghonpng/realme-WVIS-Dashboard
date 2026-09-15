@@ -12,8 +12,8 @@ async function request(path,options={}){
 }
 function canonicalSales(file){
  if(!file)return null;
- const headers=['Date','Store ID','Store Name','Model','Qty','Area','ASM','Customer','Channel','PS ID','PS Name','Sales Amount','SR Hire Date'];
- const aliases=[['Date','Sales Date','Sellout Date','Transaction Date'],['Store ID','StoreID','store_id','Store Code','Outlet ID'],['Store Name','Store','Outlet','Shop'],['Model','SKU','Product','Model Name'],['Qty','Quantity','Sales','Units','Sellout Qty','Sales Qty'],['Area','Province','Territory'],['ASM','Manager','Sales Manager'],['Customer','Account','Dealer','Client'],['Channel','Store Type','Channel Type'],['PS ID','Promoter ID','Frontliner ID','PS','Promoter'],['PS Name','Promoter Name','Frontliner Name'],['Sales Amount','Sales Value','Amount'],['SR Hire Date','Hire Date']];
+ const headers=['Date','Store ID','Store Name','Model','Qty','Area','ASM','Customer','Channel','PS ID','PS Name','Sales Amount','SR Hire Date','Customer Type'];
+ const aliases=[['Date','Sales Date','Sellout Date','Transaction Date'],['Store ID','StoreID','store_id','Store Code','Outlet ID'],['Store Name','Store','Outlet','Shop'],['Model','SKU','Product','Model Name'],['Qty','Quantity','Sales','Units','Sellout Qty','Sales Qty'],['Area','Province','Territory'],['ASM','Manager','Sales Manager'],['Customer','Account','Dealer','Client'],['Channel','Store Type','Channel Type'],['PS ID','Promoter ID','Frontliner ID','PS','Promoter'],['PS Name','Promoter Name','Frontliner Name'],['Sales Amount','Sales Value','Amount'],['SR Hire Date','Hire Date'],['Customer Type']];
  const rows=[];
  for(const source of file.rows){
   if(!normalize(find(source,'Date','Sales Date','Sellout Date','Transaction Date','Store ID','Store Code','Store Name','Model','Qty')))continue;
@@ -51,12 +51,13 @@ function controls(){
  $('sharedMigrate').textContent=manifest?.version===0?'Publish this browser’s saved files':'Restore sales amounts from this browser’s saved files';
 }
 function installFiles(files,next){
- files={...files};hireDatesMissing=['fixed','current'].some(slot=>files[slot]&&!files[slot].headers.includes('SR Hire Date'));for(const slot of ['fixed','current']){let f=files[slot];for(const key of ['Sales Amount','SR Hire Date'])if(f&&!f.headers.includes(key))f={...f,headers:[...f.headers,key],rows:f.rows.map(r=>({...r,[key]:''}))};files[slot]=f;}
+ files={...files};hireDatesMissing=['fixed','current'].some(slot=>files[slot]&&!files[slot].headers.includes('SR Hire Date'));for(const slot of ['fixed','current']){let f=files[slot];for(const key of ['Sales Amount','SR Hire Date','Customer Type'])if(f&&!f.headers.includes(key))f={...f,headers:[...f.headers,key],rows:f.rows.map(r=>({...r,[key]:''}))};files[slot]=f;}
  validateFiles(files);
  const nextCatalog=files.scores?validateScoreRows(files.scores.rows):new Map();
  state.uploads={fixed:files.fixed||null,current:files.current||null};scoreFile=files.scores||null;scoreCatalog=nextCatalog;
  state.raw=synthesizeReferences({...baseRaw(),sales:combinedUploads()});state.live=true;
  manifest=next;window.evisRoster?.setConfig(next.files.activePromoters);window.evisPriceRanges?.setConfig(next.files.priceRanges);buildFilters();render();renderUploadUI();renderScoreFile();
+ const missingTypes=state.raw.sales.filter(r=>!normalize(r['Customer Type'])).length;let typeNotice=$('customerTypeNotice');if(!typeNotice){typeNotice=document.createElement('p');typeNotice.id='customerTypeNotice';typeNotice.className='score-note';$('dataSection').prepend(typeNotice);}typeNotice.textContent=missingTypes?fmt(missingTypes)+' sales rows have no Column Y Customer Type. Re-upload the original raw sales files to classify these rows; they currently show Unclassified in Channel.':'';
  if(!state.raw.sales.length)$('periodLabel').textContent='Waiting for shared sales data';
  $('connectionDot').classList.add('live');$('connectionText').textContent='Shared sales data';
  const updated=next.updated_at?new Date(next.updated_at).toLocaleString():'Not published yet';

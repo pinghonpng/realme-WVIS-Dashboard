@@ -78,7 +78,7 @@ function synthesizeReferences(raw){
   const stores=new Map(), promoters=new Map();
   (raw.sales||[]).forEach((r,i)=>{
     const store=find(r,'Store Name','Store','Outlet','Shop'); const sid=find(r,'Store ID','StoreID','store_id','Store Code','Outlet ID')||store||`STORE-${i+1}`;
-    if(!stores.has(sid)) stores.set(sid,{'Store ID':sid,'Store Name':store||sid,'Customer':find(r,'Customer','Account','Dealer','Client'),'Area':find(r,'Area','Province','Territory'),'ASM':find(r,'ASM','Manager','Sales Manager'),'Channel':find(r,'Channel','Store Type','Channel Type')});
+    if(!stores.has(sid)) stores.set(sid,{'Store ID':sid,'Store Name':store||sid,'Customer':find(r,'Customer','Account','Dealer','Client'),'Area':find(r,'Area','Province','Territory'),'ASM':find(r,'ASM','Manager','Sales Manager'),'Channel':find(r,'Customer Type')||'Unclassified'});
     const pid=find(r,'PS ID','Promoter ID','Frontliner ID','PS','Promoter'); if(pid&&!promoters.has(pid)) promoters.set(pid,{'PS ID':pid,'PS Name':find(r,'PS Name','Promoter Name','Frontliner Name')||pid,'Store ID':sid,'Status':'Active'});
   });
   if(!(raw.stores||[]).length)raw.stores=[...stores.values()]; if(!(raw.promoters||[]).length)raw.promoters=[...promoters.values()]; return raw;
@@ -120,7 +120,7 @@ function find(obj,...names){ const keys=Object.keys(obj||{}), label=k=>String(k)
 function storeMap(){ return new Map((state.raw.stores||[]).map(s=>[find(s,'Store ID','StoreID','store_id','Store Code','Outlet ID'),s])); }
 function salesEnriched(){
   const sm=storeMap();
-  return (state.raw.sales||[]).map(r=>{ const sid=find(r,'Store ID','StoreID','store_id','Store Code','Outlet ID') || find(r,'Store Name','Store','Outlet','Shop'); const s=sm.get(sid)||{}; return {...r,_sid:sid,_date:parseDate(find(r,'Date','Sales Date','date','Sellout Date','Transaction Date')),_qty:n(find(r,'Qty','Quantity','Sales','Units','Sellout Qty','Sales Qty')),_model:find(r,'Model','SKU','Product','Model Name'),_area:find(r,'Area','Province','Territory')||find(s,'Area','Province','Territory'),_asm:find(r,'ASM','Manager','Sales Manager')||find(s,'ASM','Manager'),_customer:find(r,'Customer','Account','Dealer','Client')||find(s,'Customer','Account','Dealer'),_channel:find(r,'Channel','Store Type','Channel Type')||find(s,'Channel','Store Type'),_store:find(r,'Store Name','Store','Outlet','Shop')||find(s,'Store Name','Store','Outlet'),_ps:find(r,'PS ID','Promoter ID','Frontliner ID','PS','Promoter')}; });
+  return (state.raw.sales||[]).map(r=>{ const sid=find(r,'Store ID','StoreID','store_id','Store Code','Outlet ID') || find(r,'Store Name','Store','Outlet','Shop'); const s=sm.get(sid)||{}; return {...r,_sid:sid,_date:parseDate(find(r,'Date','Sales Date','date','Sellout Date','Transaction Date')),_qty:n(find(r,'Qty','Quantity','Sales','Units','Sellout Qty','Sales Qty')),_model:find(r,'Model','SKU','Product','Model Name'),_area:find(r,'Area','Province','Territory')||find(s,'Area','Province','Territory'),_asm:find(r,'ASM','Manager','Sales Manager')||find(s,'ASM','Manager'),_customer:find(r,'Customer','Account','Dealer','Client')||find(s,'Customer','Account','Dealer'),_channel:find(r,'Customer Type')||'Unclassified',_store:find(r,'Store Name','Store','Outlet','Shop')||find(s,'Store Name','Store','Outlet'),_ps:find(r,'PS ID','Promoter ID','Frontliner ID','PS','Promoter')}; });
 }
 function selected(id){return $(id).value||'ALL'}
 function passes(v,sel){return sel==='ALL'||v===sel}
