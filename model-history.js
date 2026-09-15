@@ -113,3 +113,24 @@ const lineupSection=document.createElement('section');lineupSection.id='lineupSe
 lineupSection.innerHTML='<article class="card table-card"><div class="card-head"><div><h2>Current Smartphone Line-up</h2><p id="lineupPeriod">Select a month with uploaded sales.</p></div></div><p class="score-note">Models sold in the selected month and the previous month. SRP = Sales Amount ÷ units for each row. Latest SRP uses the latest dated sale with an available price in this view; if that date has multiple prices, their range is shown. Price Date shows when that price was recorded. Missing prices show —.</p><div class="table-wrap"><table class="model-history-table"><thead><tr><th>Model</th><th>Smartphone Series</th><th>Previous Month</th><th>Selected Month</th><th>Total Units</th><th>Latest SRP</th><th>Price Date</th></tr></thead><tbody id="lineupTableBody"><tr><td colspan="7">No shared sales loaded yet.</td></tr></tbody></table></div></article>';
 $('dealersSection').after(lineupSection);
 const renderBeforeFinancials=render;render=()=>{renderBeforeFinancials();renderFinancials();};
+
+// Filter history is personal to this page and resets when a new dataset loads.
+(()=>{
+ const ids=['monthFilter','areaFilter','asmFilter','customerFilter','channelFilter','modelFilter','seriesFilter'];
+ const bar=document.querySelector('.filters'),history=[];
+ const read=()=>Object.fromEntries(ids.map(id=>[id,$(id).value]));
+ let current=read();
+ const actions=document.createElement('div');actions.className='filter-actions';
+ actions.innerHTML='<button type="button" class="secondary-btn" id="clearFiltersBtn">Clear Filter</button><button type="button" class="secondary-btn" id="undoFiltersBtn" disabled>Undo</button>';
+ bar.prepend(actions);
+ const style=document.createElement('style');style.textContent='.filter-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:8px}.filter-actions .secondary-btn{margin:0;padding:7px 13px}.filter-actions button:disabled{opacity:.45;cursor:default}';document.head.appendChild(style);
+ const same=(a,b)=>ids.every(id=>a[id]===b[id]);
+ function controls(){$('undoFiltersBtn').disabled=!history.length;$('clearFiltersBtn').disabled=ids.slice(1).every(id=>$(id).value==='ALL');}
+ function remember(next){if(same(current,next))return;history.push(current);if(history.length>100)history.shift();current=next;controls();}
+ function apply(next){ids.forEach(id=>{$(id).value=next[id];});current=read();controls();render();}
+ bar.addEventListener('change',event=>{if(ids.includes(event.target.id))remember(read());},true);
+ $('clearFiltersBtn').addEventListener('click',()=>{const next={...read()};ids.slice(1).forEach(id=>next[id]='ALL');remember(next);apply(next);});
+ $('undoFiltersBtn').addEventListener('click',()=>{if(history.length)apply(history.pop());});
+ const beforeBuildFilters=buildFilters;buildFilters=()=>{beforeBuildFilters();history.length=0;current=read();controls();};
+ controls();
+})();
