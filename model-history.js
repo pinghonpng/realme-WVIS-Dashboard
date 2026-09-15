@@ -20,7 +20,7 @@ function modelHistoryData(all,month,filters,groupKey='_model'){
 }
 function renderModelHistory(rows,bodyId='modelTableBody',groupKey='_model',entityLabel='Model'){
   const month=selected('monthFilter');if(!/^\d{4}-\d{2}$/.test(month))return;
-  const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')]];
+  const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
   const history=modelHistoryData(salesEnriched(),month,filters,groupKey),{months,buckets}=history;
   const past=[months[3],months[2],months[1]],table=$(bodyId).closest('table');
   const pair=(from,to)=>from.slice(0,4)===to.slice(0,4)?monthName(from).replace(/\s*\d{4}/,'')+' → '+monthName(to):monthName(from)+' → '+monthName(to);
@@ -93,7 +93,7 @@ function renderFinancials(){
  $('aspNote').textContent=t.missingAmount?'Upload sales amounts to calculate ASP':'Sales Amount ÷ total units sold';
  const month=selected('monthFilter');if(!/^\d{4}-\d{2}$/.test(month)){$('lineupTableBody').innerHTML=emptyRow(7);return;}
  const previous=modelMonthOffset(month,-1);
- const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')]];
+ const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
  const labels=['Model','Smartphone Series',monthName(previous),monthName(month),'Total Units','Latest SRP','Price Date'];
  const table=$('lineupTableBody').closest('table');
  [...table.tHead.rows[0].cells].forEach((cell,i)=>{const button=cell.querySelector('.table-sort-button');if(button){button.setAttribute('aria-label','Sort by '+labels[i]);button.textContent=labels[i]+({'ascending':' ↑','descending':' ↓'}[cell.getAttribute('aria-sort')]||' ↕');}else cell.textContent=labels[i];});
@@ -116,7 +116,7 @@ const renderBeforeFinancials=render;render=()=>{renderBeforeFinancials();renderF
 
 // Filter history is personal to this page and resets when a new dataset loads.
 (()=>{
- const ids=['monthFilter','areaFilter','asmFilter','customerFilter','channelFilter','modelFilter','seriesFilter'];
+ const ids=['monthFilter','areaFilter','asmFilter','customerFilter','channelFilter','modelFilter','seriesFilter','priceRangeFilter'];
  const bar=document.querySelector('.filters'),history=[];
  const read=()=>Object.fromEntries(ids.map(id=>[id,$(id).value]));
  let current=read();

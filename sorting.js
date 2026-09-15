@@ -25,7 +25,7 @@ function applyTableSort(table){
 }
 function prepareSortableTables(){
   document.querySelectorAll('table').forEach(table=>{
-    if(!table.tHead||!table.tBodies.length)return;
+    if(table.hasAttribute('data-no-sort')||!table.tHead||!table.tBodies.length)return;
     sortableTableHeaders(table).forEach((header,column)=>{
       if(header.querySelector('.table-sort-button'))return;
       const label=header.textContent.trim();
