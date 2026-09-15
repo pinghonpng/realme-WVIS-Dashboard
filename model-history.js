@@ -55,3 +55,61 @@ render=()=>{renderBeforeDealers();renderModelHistory(state.filteredSales,'dealer
 const dealerStyle=document.createElement('style');
 dealerStyle.textContent='#dealerTableBody .model-rate{white-space:nowrap;font-weight:600}#dealerTableBody .up{color:#238344}#dealerTableBody .down{color:#c63c3c}#dealerTableBody .steady{color:#286bc1}#dealerTableBody td{font-variant-numeric:tabular-nums}';
 document.head.appendChild(dealerStyle);
+
+// Prices come from each sale's amount and quantity, retaining date-specific adjustments.
+function salesAmount(row){
+ const raw=normalize(find(row,'Sales Amount','Sales Value','Amount'));
+ if(raw==='')return null;
+ const value=Number(raw.replace(/(?:PHP|₱|,|\s)/gi,''));return Number.isFinite(value)?value:null;
+}
+function rowSrp(row){const amount=salesAmount(row);return amount!==null&&row._qty!==0&&amount/row._qty>=0?amount/row._qty:null;}
+function financialTotals(rows){
+ return rows.reduce((t,r)=>{const amount=salesAmount(r),price=rowSrp(r);t.units+=r._qty;
+ if(amount===null)t.missingAmount+=1;else t.amount+=amount;
+ if(r._qty!==0&&price===null)t.missingPrice+=1;else if(price>13000)t.premiumUnits+=r._qty;
+ return t;},{units:0,amount:0,premiumUnits:0,missingAmount:0,missingPrice:0});
+}
+function lineupData(all,month,filters){
+ const previous=modelMonthOffset(month,-1),groups=new Map();
+ all.forEach(r=>{
+  const m=modelMonthKey(r._date);if((m!==month&&m!==previous)||!filters.every(([key,value])=>passes(r[key],value)))return;
+  const key=r._model||'Unknown';if(!groups.has(key))groups.set(key,{model:key,series:r._series||UNMAPPED_SERIES,previous:0,current:0,latest:'',prices:new Set(),hasSale:false});
+  const g=groups.get(key);g[m===month?'current':'previous']+=r._qty;
+  if(r._qty>0)g.hasSale=true;
+  const price=rowSrp(r);if(price===null||r._qty<=0)return;
+  const date=m+'-'+String(r._date.getDate()).padStart(2,'0');
+  if(date>g.latest){g.latest=date;g.prices=new Set();}if(date===g.latest)g.prices.add(price);
+ });
+ return [...groups.values()].filter(g=>g.hasSale).sort((a,b)=>a.model.localeCompare(b.model));
+}
+const php=value=>'₱'+fmt(value,2);
+function renderFinancials(){
+ const rows=state.filteredSales,t=financialTotals(rows),hasRows=rows.length>0;
+ $('salesAmountKpi').textContent=hasRows&&!t.missingAmount?php(t.amount):'—';
+ $('aspKpi').textContent=hasRows&&!t.missingAmount&&t.units>0?php(t.amount/t.units):'—';
+ $('premiumKpi').textContent=hasRows&&!t.missingPrice?fmt(t.premiumUnits):'—';
+ $('premiumShare').textContent=hasRows&&!t.missingPrice&&t.units>0?pct(t.premiumUnits/t.units*100)+' of units sold':'Share unavailable';
+ $('amountNote').textContent=t.missingAmount?'Sales Amount missing in '+fmt(t.missingAmount)+' rows':'total Sales Amount · PHP';
+ $('aspNote').textContent=t.missingAmount?'Upload sales amounts to calculate ASP':'Sales Amount ÷ total units sold';
+ const month=selected('monthFilter');if(!/^\d{4}-\d{2}$/.test(month)){$('lineupTableBody').innerHTML=emptyRow(7);return;}
+ const previous=modelMonthOffset(month,-1);
+ const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')]];
+ const labels=['Model','Smartphone Series',monthName(previous),monthName(month),'Total Units','Latest SRP','Price Date'];
+ const table=$('lineupTableBody').closest('table');
+ [...table.tHead.rows[0].cells].forEach((cell,i)=>{const button=cell.querySelector('.table-sort-button');if(button){button.setAttribute('aria-label','Sort by '+labels[i]);button.textContent=labels[i]+({'ascending':' ↑','descending':' ↓'}[cell.getAttribute('aria-sort')]||' ↕');}else cell.textContent=labels[i];});
+ const lineup=lineupData(salesEnriched(),month,filters);
+ $('lineupPeriod').textContent=monthName(previous)+' + '+monthName(month)+' · uploaded sales only. All filters apply.';
+ $('lineupTableBody').innerHTML=lineup.map(g=>{const prices=[...g.prices].sort((a,b)=>a-b),low=prices[0],high=prices[prices.length-1];const price=prices.length?(low===high?php(low):php(low)+' – '+php(high)):'—';return '<tr><td><strong>'+escapeHtml(g.model)+'</strong></td><td>'+escapeHtml(g.series)+'</td><td>'+fmt(g.previous)+'</td><td>'+fmt(g.current)+'</td><td>'+fmt(g.previous+g.current)+'</td><td data-sort-value="'+(low??'')+'">'+price+'</td><td>'+ (g.latest||'—')+'</td></tr>';}).join('')||emptyRow(7);
+}
+// Keep the original calculation elements hidden for existing chart code.
+const financialCards=[['targetKpi','Sales Amount (PHP)','salesAmountKpi','amountNote','total Sales Amount · PHP'],['achievementKpi','ASP (PHP)','aspKpi','aspNote','Sales Amount ÷ total units sold'],['gapKpi','Sales above ₱13,000','premiumKpi','premiumShare','share of total units sold']];
+financialCards.forEach(([oldId,label,id,noteId,note])=>{
+ const old=$(oldId).closest('article');old.hidden=true;
+ const card=document.createElement('article');card.className='kpi-card card';card.innerHTML='<span class="kpi-label">'+label+'</span><div class="kpi-value" id="'+id+'">—</div><span class="kpi-note" id="'+noteId+'">'+note+'</span>';old.before(card);
+});
+const financialStyle=document.createElement('style');financialStyle.textContent='.kpi-card[hidden]{display:none}#salesAmountKpi{font-size:clamp(20px,2vw,32px)}#lineupTableBody td{font-variant-numeric:tabular-nums}#lineupTableBody td:nth-child(6){white-space:nowrap}';document.head.appendChild(financialStyle);
+const lineupTab=document.createElement('button');lineupTab.className='nav-item';lineupTab.dataset.section='lineup';lineupTab.textContent='Current Smartphone Line-up';document.querySelector('.nav-item[data-section="dealers"]').after(lineupTab);
+const lineupSection=document.createElement('section');lineupSection.id='lineupSection';lineupSection.className='dashboard-section';
+lineupSection.innerHTML='<article class="card table-card"><div class="card-head"><div><h2>Current Smartphone Line-up</h2><p id="lineupPeriod">Select a month with uploaded sales.</p></div></div><p class="score-note">Models sold in the selected month and the previous month. SRP = Sales Amount ÷ units for each row. Latest SRP uses the latest dated sale with an available price in this view; if that date has multiple prices, their range is shown. Price Date shows when that price was recorded. Missing prices show —.</p><div class="table-wrap"><table class="model-history-table"><thead><tr><th>Model</th><th>Smartphone Series</th><th>Previous Month</th><th>Selected Month</th><th>Total Units</th><th>Latest SRP</th><th>Price Date</th></tr></thead><tbody id="lineupTableBody"><tr><td colspan="7">No shared sales loaded yet.</td></tr></tbody></table></div></article>';
+$('dealersSection').after(lineupSection);
+const renderBeforeFinancials=render;render=()=>{renderBeforeFinancials();renderFinancials();};
