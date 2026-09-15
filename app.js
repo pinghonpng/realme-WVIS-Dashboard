@@ -116,7 +116,7 @@ async function handleUpload(kind,file){
 async function clearUpload(kind){state.uploads[kind]=null;await idbDelete(kind);renderUploadUI();if(!(await applyUploadedSales()))await refresh();toast(`${kind==='fixed'?'Fixed historical':'Current-month'} file removed.`)}
 async function restoreUploads(){try{state.uploads.fixed=await idbGet('fixed');state.uploads.current=await idbGet('current');renderUploadUI();return await applyUploadedSales()}catch(e){console.warn('Could not restore browser uploads',e);renderUploadUI();return false}}
 
-function find(obj,...names){ const keys=Object.keys(obj||{}), label=k=>String(k).replace(/^[^A-Za-z0-9]+/,'').trim().toLowerCase(), aliases={'qty':['sell out'],'ps id':['sr code'],'ps name':['sr name'],'customer':['customer name'],'area':['region']}; for(const name of names){const key=keys.find(k=>k.toLowerCase()===name.toLowerCase());if(key!==undefined && normalize(obj[key])!=='')return obj[key];} for(const name of names){for(const wanted of [name.toLowerCase(),...(aliases[name.toLowerCase()]||[])]){const key=keys.find(k=>label(k)===wanted);if(key!==undefined && normalize(obj[key])!=='')return obj[key];}} return ''; }
+function find(obj,...names){ const keys=Object.keys(obj||{}), label=k=>String(k).replace(/^.*[^\x00-\x7F]/,'').trim().replace(/\s+/g,' ').toLowerCase(), aliases={'qty':['sell out'],'ps id':['sr code'],'ps name':['sr name'],'customer':['short name'],'asm':['sub region'],'area':['region']}; for(const name of names){const key=keys.find(k=>k.toLowerCase()===name.toLowerCase());if(key!==undefined && normalize(obj[key])!=='')return obj[key];} for(const name of names){for(const wanted of [name.toLowerCase(),...(aliases[name.toLowerCase()]||[])]){const key=keys.find(k=>label(k)===wanted);if(key!==undefined && normalize(obj[key])!=='')return obj[key];}} return ''; }
 function storeMap(){ return new Map((state.raw.stores||[]).map(s=>[find(s,'Store ID','StoreID','store_id','Store Code','Outlet ID'),s])); }
 function salesEnriched(){
   const sm=storeMap();
@@ -136,7 +136,7 @@ function setOptions(id,values,label){ const el=$(id),cur=el.value; el.innerHTML=
 function buildFilters(){
   const rows=salesEnriched(); const months=uniq(rows.map(r=>!isNaN(r._date)?`${r._date.getFullYear()}-${String(r._date.getMonth()+1).padStart(2,'0')}`:'' )).reverse();
   const m=$('monthFilter'); const prev=m.value; m.innerHTML=months.map(x=>`<option value="${x}">${monthName(x)}</option>`).join(''); if(months.includes(prev))m.value=prev;
-  setOptions('areaFilter',uniq(rows.map(r=>r._area)),'areas'); setOptions('asmFilter',uniq(rows.map(r=>r._asm)),'ASM'); setOptions('customerFilter',uniq(rows.map(r=>r._customer)),'customers'); setOptions('channelFilter',uniq(rows.map(r=>r._channel)),'channels'); setOptions('modelFilter',uniq(rows.map(r=>r._model)),'models');
+  setOptions('areaFilter',uniq(rows.map(r=>r._area)),'areas'); setOptions('asmFilter',uniq(rows.map(r=>r._asm)),'subregions'); setOptions('customerFilter',uniq(rows.map(r=>r._customer)),'customers'); setOptions('channelFilter',uniq(rows.map(r=>r._channel)),'channels'); setOptions('modelFilter',uniq(rows.map(r=>r._model)),'models');
 }
 function monthName(ym){ if(!ym)return '—'; const [y,m]=ym.split('-'); return new Date(+y,+m-1,1).toLocaleDateString(undefined,{month:'long',year:'numeric'}); }
 function sumBy(rows,key,val='_qty'){ const map=new Map(); rows.forEach(r=>map.set(r[key]||'Unknown',(map.get(r[key]||'Unknown')||0)+n(r[val]))); return [...map.entries()].sort((a,b)=>b[1]-a[1]); }
