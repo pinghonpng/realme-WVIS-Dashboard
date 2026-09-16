@@ -10,14 +10,17 @@ function modelRate(current,previous){
 function modelRateCell(current,previous){const rate=modelRate(current,previous),symbol={up:'▲',down:'▼',steady:'━',missing:''}[rate.kind];return `<td data-sort-value="${rate.value??''}" class="model-rate ${rate.kind}"><span aria-hidden="true">${symbol}</span> ${rate.text}</td>`;}
 function historyMonthLabel(month){const [year,num]=month.split('-').map(Number);return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][num-1]+' '+year;}
 function historyPairLabel(from,to){return from.slice(0,4)===to.slice(0,4)?historyMonthLabel(from).slice(0,3)+' → '+historyMonthLabel(to):historyMonthLabel(from)+' → '+historyMonthLabel(to);}
-function modelGapCell(current,previous){
- if(current===null||previous===null)return '<td data-sort-value="" class="model-rate missing">—</td>';
- const gap=current-previous,rate=modelRate(current,previous),kind=gap>0?'up':gap<0?'down':'steady';
- return `<td data-sort-value="${gap}" class="model-rate ${kind}">${gap>0?'+':''}${fmt(gap)} (${rate.text})</td>`;
+function historyTotalDecline(keys,current,previous){return keys.reduce((sum,key)=>sum+Math.max(0,(previous.get(key)||0)-(current.get(key)||0)),0);}
+function modelGapCell(current,previous,totalDecline,summary=false){
+ if(current===null||previous===null||totalDecline===null)return '<td data-sort-value="" class="model-rate missing">—</td>';
+ const gap=current-previous,kind=gap>0?'up':gap<0?'down':'steady';
+ const share=totalDecline>0?(summary?100:Math.max(0,-gap)/totalDecline*100):0;
+ const title=summary?'Net unit gap; percentage totals the decline shares of displayed rows. Total lost units: '+fmt(totalDecline):'Share of total decline: lost units divided by '+fmt(totalDecline)+' lost units across displayed rows.';
+ return `<td data-sort-value="${gap}" class="model-rate ${kind}" title="${title}">${gap>0?'+':''}${fmt(gap)} (${share.toFixed(2)}%)</td>`;
 }
 function historyColumnLabels(entity,month,hideShare=false){
  const previous=modelMonthOffset(month,-1),past=[-3,-2,-1].map(offset=>modelMonthOffset(month,offset));
- return [entity,historyMonthLabel(month)+' MTD',historyMonthLabel(previous)+' MTD','MTD Gap',...(hideShare?[]:['MTD Market Share']),historyPairLabel(previous,month)+' MTD IR',...past.map(historyMonthLabel),...past.map(m=>historyPairLabel(modelMonthOffset(m,-1),m))];
+ return [entity,historyMonthLabel(month)+' MTD',historyMonthLabel(previous)+' MTD','MTD Gap (Decline Share)',...(hideShare?[]:['MTD Market Share']),historyPairLabel(previous,month)+' MTD IR',...past.map(historyMonthLabel),...past.map(m=>historyPairLabel(modelMonthOffset(m,-1),m))];
 }
 function modelHistoryData(all,month,filters,groupKey='_model'){
   const months=Array.from({length:5},(_,i)=>modelMonthOffset(month,-i));
@@ -42,18 +45,19 @@ function renderModelHistory(rows,bodyId='modelTableBody',groupKey='_model',entit
   const models=(options.entities||uniq([...buckets.get(month).sales.keys()])).filter(options.entityFilter||(()=>true));
   if(bodyId==='priceRangeTableBody'){const order=new Map((window.evisPriceRanges?.getRanges()||[]).map((range,index)=>[range.name,index]));models.sort((a,b)=>(order.get(a)??Infinity)-(order.get(b)??Infinity)||a.localeCompare(b));}
   const current=buckets.get(month),total=options.entities?[...current.sales.values()].reduce((sum,qty)=>sum+qty,0):rows.reduce((sum,r)=>sum+r._qty,0);
+  const totalDecline=history.matchedAvailable?historyTotalDecline(models,current.sales,history.matched):null;
   const complete=m=>{const [y,num]=m.split('-').map(Number);return buckets.get(m).latest===new Date(y,num,0).getDate();};
   const monthly=(m,model)=>buckets.get(m).latest?buckets.get(m).sales.get(model)||0:null;
   $(bodyId).innerHTML=models.map(model=>{
     const sales=current.sales.get(model)||0,prior=history.matchedAvailable?history.matched.get(model)||0:null;
-    return `<tr><td><strong>${escapeHtml(options.names?.get(model)||model)}</strong></td><td>${fmt(sales)}</td><td>${prior===null?'—':fmt(prior)}</td>${modelGapCell(current.latest?sales:null,prior)}${options.hideShare?'':`<td>${pct(total?sales/total*100:0)}</td>`}${modelRateCell(current.latest?sales:null,prior)}${past.map(m=>{const value=monthly(m,model);return `<td>${value===null?'—':fmt(value)+(complete(m)?'':' *')}</td>`;}).join('')}${past.map(m=>{const prev=modelMonthOffset(m,-1);return modelRateCell(complete(m)?monthly(m,model):null,complete(prev)?monthly(prev,model):null);}).join('')}</tr>`;
+    return `<tr><td><strong>${escapeHtml(options.names?.get(model)||model)}</strong></td><td>${fmt(sales)}</td><td>${prior===null?'—':fmt(prior)}</td>${modelGapCell(current.latest?sales:null,prior,totalDecline)}${options.hideShare?'':`<td>${pct(total?sales/total*100:0)}</td>`}${modelRateCell(current.latest?sales:null,prior)}${past.map(m=>{const value=monthly(m,model);return `<td>${value===null?'—':fmt(value)+(complete(m)?'':' *')}</td>`;}).join('')}${past.map(m=>{const prev=modelMonthOffset(m,-1);return modelRateCell(complete(m)?monthly(m,model):null,complete(prev)?monthly(prev,model):null);}).join('')}</tr>`;
   }).join('')||emptyRow(labels.length);
   // Aggregate displayed entities first; calculate rates from their combined units.
   const aggregate=map=>models.reduce((sum,key)=>sum+(map.get(key)||0),0);
   const currentTotal=aggregate(current.sales),priorTotal=history.matchedAvailable?aggregate(history.matched):null;
   const monthlyTotal=m=>buckets.get(m).latest?aggregate(buckets.get(m).sales):null;
   const footer=table.tFoot||table.createTFoot();footer.dataset.summary='history';
-  footer.innerHTML=`<tr><th scope="row">WVIS</th><td>${fmt(currentTotal)}</td><td>${priorTotal===null?'—':fmt(priorTotal)}</td>${modelGapCell(current.latest?currentTotal:null,priorTotal)}${options.hideShare?'':`<td>${pct(total?currentTotal/total*100:0)}</td>`}${modelRateCell(current.latest?currentTotal:null,priorTotal)}${past.map(m=>{const value=monthlyTotal(m);return `<td>${value===null?'—':fmt(value)+(complete(m)?'':' *')}</td>`;}).join('')}${past.map(m=>{const prev=modelMonthOffset(m,-1);return modelRateCell(complete(m)?monthlyTotal(m):null,complete(prev)?monthlyTotal(prev):null);}).join('')}</tr>`;
+  footer.innerHTML=`<tr><th scope="row">WVIS</th><td>${fmt(currentTotal)}</td><td>${priorTotal===null?'—':fmt(priorTotal)}</td>${modelGapCell(current.latest?currentTotal:null,priorTotal,totalDecline,true)}${options.hideShare?'':`<td>${pct(total?currentTotal/total*100:0)}</td>`}${modelRateCell(current.latest?currentTotal:null,priorTotal)}${past.map(m=>{const value=monthlyTotal(m);return `<td>${value===null?'—':fmt(value)+(complete(m)?'':' *')}</td>`;}).join('')}${past.map(m=>{const prev=modelMonthOffset(m,-1);return modelRateCell(complete(m)?monthlyTotal(m):null,complete(prev)?monthlyTotal(prev):null);}).join('')}</tr>`;
   footer.title='Totals for the rows in this table. Increase rates use combined sales.';
   table.closest('article').querySelector('.card-head p').textContent=`Current sales: ${monthName(month)} 1–${history.cutoff||'—'}. Previous period: ${monthName(months[1])} 1–${history.previousEnd||'—'}. ${options.hideShare?'':'Market share uses selected-view units. '}IR = (new − previous) / previous. Blue line: ±1%; green: increase; red: decrease. New = zero prior sales. Past months show all uploaded sales; * means data ends before month-end, and incomplete/missing comparisons show —. All filters apply to both periods.`;
 }
