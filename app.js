@@ -221,8 +221,8 @@ document.addEventListener('DOMContentLoaded',async()=>{
   const secondaryNav=document.createElement('nav');secondaryNav.className='sidebar-secondary-nav';secondaryNav.setAttribute('aria-label','Additional dashboard tabs');
   document.querySelector('.sidebar-foot').before(secondaryNav);
   ['data','lineup','stores','inventory'].forEach(section=>{const tab=document.querySelector('.nav-item[data-section="'+section+'"]');if(tab){if(section==='inventory')tab.textContent='Inventory (soon)';secondaryNav.append(tab);}});
-  $('pageTitle').textContent=CFG.dashboardTitle||'Sales Performance Dashboard'; document.title=`${CFG.companyName||'realme WVIS'} Sales Dashboard`;
-  document.querySelectorAll('.nav-item').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));btn.classList.add('active');document.querySelectorAll('.dashboard-section').forEach(x=>x.classList.remove('active'));$(`${btn.dataset.section}Section`).classList.add('active')}));
+  $('pageTitle').textContent=document.querySelector('.nav-item.active')?.textContent.trim()||'Overview'; document.title=`${CFG.companyName||'realme WVIS'} Sales Dashboard`;
+  document.querySelectorAll('.nav-item').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));btn.classList.add('active');$('pageTitle').textContent=btn.textContent.trim();document.querySelectorAll('.dashboard-section').forEach(x=>x.classList.remove('active'));$(`${btn.dataset.section}Section`).classList.add('active')}));
   ['monthFilter','areaFilter','asmFilter','customerFilter','channelFilter','modelFilter'].forEach(id=>$(id).addEventListener('change',render));
   $('fixedFile').addEventListener('change',e=>handleUpload('fixed',e.target.files[0])); $('currentFile').addEventListener('change',e=>handleUpload('current',e.target.files[0]));
   $('clearFixedBtn').addEventListener('click',()=>clearUpload('fixed')); $('clearCurrentBtn').addEventListener('click',()=>clearUpload('current'));
