@@ -237,3 +237,40 @@ function overviewRequiredRate(units,target,remaining){return target==null?null:u
  }
  const before=render;render=()=>{before();update();};
 })();
+
+// September targets are territorial; product/customer filters change actuals, not allocations.
+function overviewTerritoryTarget(all,members,month,area,subregion){
+ const totals={units:6655,score:77440},areas=['EVIS','NEGROS','PANAY'];
+ if(month!=='2026-09')return {reason:'No target set for this month'};
+ const chosen=areas.filter(a=>area==='ALL'||a===area);
+ if(subregion==='ALL')return {units:totals.units*chosen.length/3,score:totals.score*chosen.length/3};
+ if(!members)return {reason:'Waiting for active promoter list'};
+ const months=['2026-06','2026-07','2026-08'],coverage=new Map();
+ all.forEach(r=>{const m=modelMonthKey(r._date);if(months.includes(m))coverage.set(m,Math.max(coverage.get(m)||0,r._date.getDate()));});
+ if(months.some(m=>coverage.get(m)!==new Date(Number(m.slice(0,4)),Number(m.slice(5)),0).getDate()))return {reason:'Complete Jun–Aug sales needed for allocation'};
+ let weight=0;
+ for(const a of chosen){
+  const history=all.filter(r=>r._area===a&&months.includes(modelMonthKey(r._date))),ps=members.filter(r=>r._area===a);
+  const quantities=new Map();history.forEach(r=>quantities.set(r._asm,(quantities.get(r._asm)||0)+r._qty));
+  const total=[...quantities.values()].reduce((sum,n)=>sum+Math.max(0,n),0);
+  if(!(total>0)||!ps.length)return {reason:'Sales history and active headcount needed for allocation'};
+  weight+=(.5*Math.max(0,quantities.get(subregion)||0)/total+.5*ps.filter(r=>r._asm===subregion).length/ps.length)/3;
+ }
+ return {units:totals.units*weight,score:totals.score*weight};
+}
+(()=>{
+ for(const id of ['salesKpi','requiredRunRateKpi']){const line=document.createElement('div');line.id=id+'Achievement';line.className='overview-target-ar';$(id).closest('article').append(line);}
+ const style=document.createElement('style');style.textContent='.overview-target-ar{font-size:11px;line-height:1.6;margin-top:9px;color:#737b87}.overview-target-ar strong{color:#191b1d;font-size:12px}';document.head.append(style);
+ function update(){
+  const all=salesEnriched(),month=selected('monthFilter'),roster=window.evisRoster?.getRoster();
+  const members=roster?pushLatestPromoters(all.filter(r=>modelMonthKey(r._date)<=month),roster):null;
+  const target=overviewTerritoryTarget(all,members,month,selected('areaFilter'),selected('asmFilter'));
+  const score=scoreTotals(state.filteredSales),actualUnits=state.filteredSales.reduce((sum,r)=>sum+r._qty,0);
+  for(const [id,key,actual] of [['salesKpi','units',actualUnits],['requiredRunRateKpi','score',scoreFile&&!score.missing?score.points:null]]){
+   const node=$(id+'Achievement'),value=target[key];
+   node.innerHTML=value===undefined?'Target / AR: —':`Sep target: ${fmt(value,2)} ${key==='units'?'units':'points'}<br><strong>AR: ${actual!==null&&value>0?fmt(actual/value*100,2)+'%':'—'}</strong>`;
+   node.title=target.reason||'September full-month territorial target. Subregion allocation: 50% Jun–Aug unit-sales share + 50% active promoter headcount within its Area. Other filters change actuals only.';
+  }
+ }
+ window.evisOverviewTargets={render:update};const before=render;render=()=>{before();update();};
+})();
