@@ -1,12 +1,6 @@
 // Move the existing controls and card into a modal: no duplicate filters, IDs, or stale copies.
 (()=>{
  let active=null;
- const sizedCards=new WeakSet();
- const iconSizer=new ResizeObserver(entries=>entries.forEach(({target,contentRect})=>{
-  const compact=target.classList.contains('kpi-card');
-  const size=Math.round(Math.max(compact?14:18,Math.min(compact?18:22,12+contentRect.width/60)));
-  const value=size+'px';if(target.style.getPropertyValue('--panel-icon-size')!==value)target.style.setProperty('--panel-icon-size',value);
- }));
  function resize(){requestAnimationFrame(()=>Object.values(state.charts).forEach(c=>c.resize()));}
  function close(){if(!active)return;const {dialog,moves,card,target,button,hidden,details,collapsed}=active;active=null;
   for(const [node,marker] of moves.reverse()){marker.replaceWith(node);}
@@ -38,7 +32,6 @@
   document.querySelectorAll('.dashboard-section .table-wrap,.dashboard-section canvas,.dashboard-section .kpi-panel-content').forEach(target=>{
    if(target.dataset.fullscreenReady)return;target.dataset.fullscreenReady='true';
    const card=target.closest('article');if(!card)return;
-   if(!sizedCards.has(card)){sizedCards.add(card);iconSizer.observe(card);}
    const body=target.querySelector('tbody');const heading=target.previousElementSibling?.matches('.card-head')?target.previousElementSibling:target.closest('details')?.querySelector('summary')||card.querySelector('.card-head');
    const title=target.querySelector('table')?.getAttribute('aria-label')||heading?.querySelector('h2,h3,.kpi-label')?.textContent||card.querySelector('h2')?.textContent||'Table';
    const button=document.createElement('button');button.type='button';button.className='secondary-btn fullscreen-button panel-icon panel-expand';button.textContent='Full screen';button.setAttribute('aria-label','Full screen: '+title);button.dataset.target=body?.id||target.id;
@@ -68,13 +61,15 @@
  }
  document.addEventListener('DOMContentLoaded',()=>{prepare();const observer=new MutationObserver(()=>prepare());observer.observe(document.querySelector('.main'),{childList:true,subtree:true});});
  const style=document.createElement('style');style.textContent=`
- .panel-window-controls{display:inline-flex;align-items:center;gap:calc(var(--panel-icon-size,18px) * .4);margin-left:auto;flex-shrink:0}.table-visibility-summary>.panel-window-controls{float:right}
+ .panel-window-controls{display:inline-flex;align-items:center;gap:4px;margin-left:auto;flex-shrink:0}.table-visibility-summary>.panel-window-controls{float:right}
  button.panel-icon{position:relative;display:inline-grid;place-items:center;width:var(--panel-icon-size,18px);height:var(--panel-icon-size,18px);min-width:var(--panel-icon-size,18px);border-radius:50%;padding:0!important;margin:0!important;font-size:0!important;line-height:1;border:1px solid rgba(0,0,0,.14);box-shadow:none;cursor:pointer}
  button.panel-icon:focus-visible{outline:3px solid #2563eb;outline-offset:4px}button.panel-icon:hover{filter:brightness(.94)}
- button.panel-collapse{background:#ffbd44!important;color:#805500!important}button.panel-collapse::after{content:'−';font:700 calc(var(--panel-icon-size,18px) * .92) Arial}button.panel-collapse[aria-expanded="false"]::after{content:'+';font-size:calc(var(--panel-icon-size,18px) * .84)}
- button.panel-expand{background:#28c840!important;color:#086817!important}button.panel-expand::after{content:'';width:calc(var(--panel-icon-size,18px) * .54);height:calc(var(--panel-icon-size,18px) * .54);background:currentColor;clip-path:polygon(0 0,45% 0,0 45%,0 0,100% 0,100% 100%,55% 100%,100% 55%,100% 0,0 100%)}
+ button.panel-collapse,button.panel-expand{display:inline-flex;align-items:center;justify-content:center;width:auto;height:auto;min-width:0;min-height:20px;border:1px solid #e2e5e9;border-radius:4px;padding:3px 6px!important;background:#fff!important;color:#636975!important;line-height:1.2;font-weight:500;white-space:nowrap}
+ button.panel-collapse::after,button.panel-expand::after{font:500 11px/1.2 Montserrat,Arial,sans-serif}
+ button.panel-collapse::after{content:'Hide'}button.panel-collapse[aria-expanded="false"]::after{content:'Show'}button.panel-expand::after{content:'Expand'}
+ button.panel-collapse:hover,button.panel-expand:hover{background:#f4f5f7!important;color:#222!important;filter:none}
  button.panel-close{--panel-icon-size:22px;background:#ff5f57!important;color:#85150e!important}button.panel-close::after{content:'×';font:400 calc(var(--panel-icon-size,18px) * 1.04) Arial}
- .kpi-panel-heading{gap:10px;margin-bottom:0}.kpi-panel-heading .kpi-label{flex:1}.kpi-panel-heading .panel-window-controls{gap:6px}.fullscreen-card.kpi-card .kpi-value{font-size:clamp(36px,8vw,90px)}
+ .kpi-panel-heading{gap:10px;margin-bottom:0}.kpi-panel-heading .kpi-label{flex:1}.kpi-panel-heading .panel-window-controls{gap:4px}.fullscreen-card.kpi-card .kpi-value{font-size:clamp(36px,8vw,90px)}
  .chart-card.chart-collapsed{min-height:0!important;align-self:start}.chart-collapsed>canvas,.chart-collapsed>.chart-view-controls,.chart-collapsed>.trend-period,.chart-collapsed>.kpi-panel-content{display:none!important}.chart-collapsed>.card-head{margin-bottom:0}
  .fullscreen-button{white-space:nowrap}.has-fullscreen{overflow:hidden}
  dialog.dashboard-fullscreen{position:fixed;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;border:0;padding:20px;background:#f5f6f8;color:#17191c;overflow:auto;box-sizing:border-box}
