@@ -211,15 +211,15 @@ function overviewRequiredRate(units,target,remaining){return target==null?null:u
   const p=overviewKpiPeriod(salesEnriched(),month,filters),c=p.current,b=p.prior,label=monthName(p.previous)+' 1–'+(p.priorEnd||'—');
   const amount=t=>t.missingAmount?null:t.amount,asp=t=>t.missingAmount||t.units<=0?null:t.amount/t.units,premium=t=>t.missingPrice?null:t.premiumUnits;
   const daily=p.cutoff?c.units/p.cutoff:null,priorDaily=p.priorEnd?b.units/p.priorEnd:null;
-  const target=OVERVIEW_UNIT_TARGETS[month],priorTarget=OVERVIEW_UNIT_TARGETS[p.previous];
-  const required=p.cutoff?overviewRequiredRate(c.units,target,p.currentDays-p.cutoff):null,priorRequired=overviewRequiredRate(b.units,priorTarget,p.priorDays-p.priorEnd);
+  const matches=r=>filters.every(([key,value])=>passes(r[key],value));
+  const all=salesEnriched(),currentScore=scoreTotals(all.filter(r=>modelMonthKey(r._date)===month&&matches(r))),previousScore=scoreTotals(all.filter(r=>modelMonthKey(r._date)===p.previous&&r._date.getDate()<=p.priorEnd&&matches(r)));
+  const scoreValue=t=>scoreFile&&!t.missing?t.points:null;
   $('runRateKpi').textContent=daily===null?'—':fmt(daily,1);$('runRateKpi').closest('article').querySelector('.kpi-note').textContent='units / elapsed calendar day';
-  $('requiredRunRateKpi').textContent=required===null?'—':fmt(required,1);
-  $('requiredRunRateKpi').closest('article').querySelector('.kpi-note').textContent=target==null?'No monthly unit target set':fmt(target)+'-unit target · '+Math.max(p.currentDays-p.cutoff,0)+' days remaining';
-  $('requiredRunRateKpi').closest('article').title='Monthly unit target stays unchanged when filters are applied. Required rate = remaining units / remaining calendar days.';
-  const values=[[c.units,b.units,v=>fmt(v)],[amount(c),amount(b),php],[asp(c),asp(b),php],[premium(c),premium(b),v=>fmt(v)+(b.units>0?' ('+pct(v/b.units*100)+')':'')],[daily,priorDaily,v=>fmt(v,1)],[required,priorRequired,v=>fmt(v,1)]];
+  $('requiredRunRateKpi').textContent=scoreText(currentScore);
+  $('requiredRunRateKpi').closest('article').querySelector('.kpi-note').textContent=currentScore.missing?'Incomplete: '+fmt(currentScore.unmappedUnits)+' units missing scores':'points for selected period';
+  $('requiredRunRateKpi').closest('article').title='Units sold × model points per unit';
+  const values=[[c.units,b.units,v=>fmt(v)],[amount(c),amount(b),php],[asp(c),asp(b),php],[premium(c),premium(b),v=>fmt(v)+(b.units>0?' ('+pct(v/b.units*100)+')':'')],[daily,priorDaily,v=>fmt(v,1)],[scoreValue(currentScore),scoreValue(previousScore),v=>fmt(v,2)]];
   ids.forEach((id,i)=>comparison(id,p.cutoff?values[i][0]:null,p.available?values[i][1]:null,values[i][2],label));
-  if(priorTarget==null)$('requiredRunRateKpiComparison').insertAdjacentHTML('beforeend','<br>Previous-month target not set');
  }
  const before=render;render=()=>{before();update();};
 })();

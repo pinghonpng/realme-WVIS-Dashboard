@@ -166,11 +166,10 @@ function render(){ filterData(); const rows=state.filteredSales; const sales=row
   const dates=uniq(rows.map(r=>r._date.toISOString().slice(0,10))); const elapsed=Math.max(dates.length,1); const [yy,mm]=(selected('monthFilter')||'').split('-').map(Number); const daysInMonth=yy&&mm?new Date(yy,mm,0).getDate():30; const remaining=Math.max(daysInMonth-elapsed,1);
   $('salesKpi').textContent=fmt(sales); $('targetKpi').textContent=fmt(target); $('achievementKpi').textContent=pct(ach); $('gapKpi').textContent=fmt(gap); $('runRateKpi').textContent=fmt(sales/elapsed,1); $('requiredRunRateKpi').textContent=fmt(gap/remaining,1); $('achievementBar').style.width=`${Math.min(ach,100)}%`; $('periodLabel').textContent=`${monthName(selected('monthFilter'))} performance`;
 
-  const byDate=sumBy(rows.map(r=>({...r,_d:[r._date.getFullYear(),String(r._date.getMonth()+1).padStart(2,'0'),String(r._date.getDate()).padStart(2,'0')].join('-')})),'_d').sort((a,b)=>a[0].localeCompare(b[0])); const dateLabels=byDate.map(x=>Number(x[0].slice(-2))); const daily=byDate.map(x=>x[1]); const pace=target/daysInMonth;
-  chart('salesTrendChart','line',dateLabels,[{label:'Daily Sales',data:daily,borderColor:'#111214',backgroundColor:'rgba(17,18,20,.08)',fill:true,tension:.35},{label:'Target Pace',data:daily.map(()=>pace),borderColor:'#ffc915',borderDash:[6,5],pointRadius:0,tension:0}],{legend:true});
+  renderOverviewTrend();
   const area=sumBy(rows,'_area').slice(0,8); chart('areaChart','bar',area.map(x=>x[0]),[{data:area.map(x=>x[1]),backgroundColor:'#ffc915',borderRadius:7}],{});
   const cust=sumBy(rows,'_customer').slice(0,7); chart('customerChart','bar',cust.map(x=>x[0]),[{data:cust.map(x=>x[1]),backgroundColor:'#111214',borderRadius:6}],{});
-  const mod=sumBy(rows,'_model').slice(0,7); chart('modelChart','doughnut',mod.map(x=>x[0]),[{data:mod.map(x=>x[1]),backgroundColor:['#ffc915','#111214','#777','#bbb','#e6cf67','#555','#ddd'],borderWidth:0}],{legend:true,scales:{}});
+  renderOverviewMix(rows);
   const ch=sumBy(rows,'_channel').slice(0,6); chart('channelChart','bar',ch.map(x=>x[0]),[{data:ch.map(x=>x[1]),backgroundColor:'#ffc915',borderRadius:6}],{});
 
   renderModelTable(rows); renderStores(rows); renderPromoters(rows); renderInventory(rows);
