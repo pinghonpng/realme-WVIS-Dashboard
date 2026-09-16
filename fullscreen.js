@@ -2,19 +2,25 @@
 (()=>{
  let active=null;
  function resize(){requestAnimationFrame(()=>Object.values(state.charts).forEach(c=>c.resize()));}
- function close(){if(!active)return;const {dialog,moves,card,target,button,hidden,details,collapsed}=active;active=null;
+ function close(){if(!active)return;const {dialog,moves,card,target,button,hidden,details,collapsed,scroll,canvasSizes}=active;active=null;
+  // Restore compact canvas dimensions before returning it to a CSS grid.
+  canvasSizes.forEach(({canvas,width,height})=>{canvas.style.width=width;canvas.style.height=height;});
   for(const [node,marker] of moves.reverse()){marker.replaceWith(node);}
   card.classList.remove('fullscreen-card');card.classList.toggle('chart-collapsed',collapsed);target.classList.remove('fullscreen-target');target.hidden=hidden;
-  details.forEach(([node,open])=>node.open=open);dialog.close();dialog.remove();document.body.classList.remove('has-fullscreen');syncTrendMonthLock();resize();button.focus();
+  details.forEach(([node,open])=>node.open=open);dialog.close();dialog.remove();document.body.classList.remove('has-fullscreen');syncTrendMonthLock();resize();button.focus({preventScroll:true});
+  window.scrollTo(scroll.x,scroll.y);
+  requestAnimationFrame(()=>{if(active)return;window.scrollTo(scroll.x,scroll.y);requestAnimationFrame(()=>{if(!active)window.scrollTo(scroll.x,scroll.y);});});
  }
  function open(target,button){
   if(active)return;const card=target.closest('article')||target.parentElement,section=target.closest('.dashboard-section');
+  const scroll={x:window.scrollX,y:window.scrollY};
+  const canvasSizes=[...card.querySelectorAll('canvas')].map(canvas=>({canvas,width:canvas.style.width,height:canvas.style.height}));
   const dialog=document.createElement('dialog');dialog.className='dashboard-fullscreen';dialog.setAttribute('aria-label',button.getAttribute('aria-label').replace('Full screen: ','')+' full screen');
   const header=document.createElement('div');header.className='fullscreen-toolbar';const title=document.createElement('strong');title.textContent=dialog.getAttribute('aria-label');
   const exit=document.createElement('button');exit.className='secondary-btn panel-icon panel-close';exit.textContent='Close full screen';exit.setAttribute('aria-label','Close full screen');exit.title='Close full screen';exit.onclick=close;header.append(title,exit);dialog.append(header);section.append(dialog);
   const moves=[];function move(node){if(!node)return;const marker=document.createComment('fullscreen-position');node.before(marker);moves.push([node,marker]);dialog.append(node);}
   const details=[...card.querySelectorAll('details')].filter(node=>node.contains(target)).map(node=>[node,node.open]);details.forEach(([node])=>node.open=true);
-  active={dialog,moves,card,target,button,hidden:target.hidden,details,collapsed:card.classList.contains('chart-collapsed')};card.classList.remove('chart-collapsed');
+  active={dialog,moves,card,target,button,scroll,canvasSizes,hidden:target.hidden,details,collapsed:card.classList.contains('chart-collapsed')};card.classList.remove('chart-collapsed');
   if(section.id!=='productivitySection')move(document.querySelector('.filters'));
   const extra=section.querySelector('.push-controls');if(extra)move(extra);
   move(card);target.hidden=false;target.classList.add('fullscreen-target');card.classList.add('fullscreen-card');
@@ -61,6 +67,7 @@
  }
  document.addEventListener('DOMContentLoaded',()=>{prepare();const observer=new MutationObserver(()=>prepare());observer.observe(document.querySelector('.main'),{childList:true,subtree:true});});
  const style=document.createElement('style');style.textContent=`
+ .dashboard-section .grid-2>*,.dashboard-section .grid-3>*{min-width:0}.dashboard-section .chart-card canvas{max-width:100%}
  .panel-window-controls{display:inline-flex;align-items:center;gap:4px;margin-left:auto;flex-shrink:0}.table-visibility-summary>.panel-window-controls{float:right}
  button.panel-icon{position:relative;display:inline-grid;place-items:center;width:var(--panel-icon-size,18px);height:var(--panel-icon-size,18px);min-width:var(--panel-icon-size,18px);border-radius:50%;padding:0!important;margin:0!important;font-size:0!important;line-height:1;border:1px solid rgba(0,0,0,.14);box-shadow:none;cursor:pointer}
  button.panel-icon:focus-visible{outline:3px solid #2563eb;outline-offset:4px}button.panel-icon:hover{filter:brightness(.94)}
