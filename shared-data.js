@@ -4,6 +4,9 @@ const config={url:'https://fuvlhwoauzvgrbakihsj.supabase.co',publishableKey:'sb_
 const origin=new URL(config.url).origin,slots=['fixed','current','scores'];
 let manifest=null,session=null,admin=false,busy=false,loading=false,hireDatesMissing=false;
 const cache=new Map();
+const salesSheet={id:'1AaSTsNKEO0olJ1UxCwtSLpktkSMKvfiDERlBLhWFDkc',tabs:{fixed:'PREVIOUS MONTHS',current:'CURRENT MONTH'}};
+let sheetSnapshot=null,sheetFailure='',sheetChecked=null,installedVersion='';
+const sheetCacheKey='googleSales:'+salesSheet.id;
 const say=message=>{$('sharedStatus').textContent=message;};
 async function request(path,options={}){
  const response=await fetch(origin+path,{...options,cache:'no-store',headers:{apikey:config.publishableKey,...(session?{Authorization:'Bearer '+session.access_token}:{}),...options.headers}});
@@ -14,10 +17,12 @@ function canonicalSales(file){
  if(!file)return null;
  const headers=['Date','Store ID','Store Name','Model','Qty','Area','ASM','Customer','Channel','PS ID','PS Name','Sales Amount','SR Hire Date','Customer Type','SR Role'];
  const aliases=[['Date','Sales Date','Sellout Date','Transaction Date'],['Store ID','StoreID','store_id','Store Code','Outlet ID'],['Store Name','Store','Outlet','Shop'],['Model','SKU','Product','Model Name'],['Qty','Quantity','Sales','Units','Sellout Qty','Sales Qty'],['Area','Province','Territory'],['ASM','Manager','Sales Manager'],['Customer','Account','Dealer','Client'],['Channel','Store Type','Channel Type'],['PS ID','Promoter ID','Frontliner ID','PS','Promoter'],['PS Name','Promoter Name','Frontliner Name'],['Sales Amount','Sales Value','Amount'],['SR Hire Date','Hire Date'],['Customer Type'],['SR Role']];
+ const sourceKeys=file.headers||Object.keys(file.rows[0]||{}),lookup=Object.fromEntries(sourceKeys.filter(Boolean).map(k=>[k,k]));
+ const columns=aliases.map(names=>find(lookup,...names));
  const rows=[];
  for(const source of file.rows){
-  if(!normalize(find(source,'Date','Sales Date','Sellout Date','Transaction Date','Store ID','Store Code','Store Name','Model','Qty')))continue;
-  const row=Object.fromEntries(headers.map((h,i)=>[h,normalize(find(source,...aliases[i]))]));
+  const row=Object.fromEntries(headers.map((h,i)=>[h,normalize(source[columns[i]])]));
+  if(!['Date','Store ID','Store Name','Model','Qty'].some(k=>row[k]))continue;
   const date=parseDate(row.Date),quantity=Number(row.Qty.replace(/,/g,''));
   if(isNaN(date)||!row.Model||row.Qty===''||!Number.isFinite(quantity))throw new Error('A sales row is missing a valid date, model or quantity. Correct the file before publishing.');
   if(row['Sales Amount']!==''){const amount=Number(row['Sales Amount'].replace(/(?:PHP|₱|,|\s)/gi,''));if(!Number.isFinite(amount))throw new Error('A sales row contains an invalid Sales Amount. Correct the file before publishing.');row['Sales Amount']=String(amount);}
@@ -43,13 +48,9 @@ async function download(meta){
 }
 function controls(){
  window.evisRoster?.setAdmin(admin&&!busy);window.evisPriceRanges?.setAdmin(admin&&!busy);
- ['fixedFile','currentFile','scoreFile','clearFixedBtn','clearCurrentBtn','sharedMigrate','sharedHireDates','sharedRoles'].forEach(id=>{if($(id))$(id).disabled=!admin||busy;});
+ ['fixedFile','currentFile','scoreFile','clearFixedBtn','clearCurrentBtn'].forEach(id=>{if($(id))$(id).disabled=!admin||busy;});
  $('sharedLogin').hidden=admin;$('sharedLogout').hidden=!admin;$('sharedAdmin').textContent=admin?'Administrator: lucasngrealme@gmail.com':'Viewer · shared data';
- const needsAmounts=['fixed','current'].some(slot=>state.uploads[slot]?.rows.some(r=>normalize(r['Sales Amount'])===''));
- $('sharedMigrate').hidden=!admin||(manifest?.version!==0&&!needsAmounts);
- if($('sharedRoles'))$('sharedRoles').closest('label').hidden=!admin||!['fixed','current'].some(k=>state.uploads[k]?.rows.some(r=>!normalize(r['SR Role'])));
- if($('sharedHireDates'))$('sharedHireDates').hidden=!admin||!hireDatesMissing;
- $('sharedMigrate').textContent=manifest?.version===0?'Publish this browser’s saved files':'Restore sales amounts from this browser’s saved files';
+ ['fixedFile','currentFile','clearFixedBtn','clearCurrentBtn'].forEach(id=>{if($(id))$(id).disabled=true;});
 }
 function installFiles(files,next){
  files={...files};hireDatesMissing=['fixed','current'].some(slot=>files[slot]&&!files[slot].headers.includes('SR Hire Date'));for(const slot of ['fixed','current']){let f=files[slot];for(const key of ['Sales Amount','SR Hire Date','Customer Type','SR Role'])if(f&&!f.headers.includes(key))f={...f,headers:[...f.headers,key],rows:f.rows.map(r=>({...r,[key]:''}))};files[slot]=f;}
@@ -66,14 +67,56 @@ function installFiles(files,next){
  say(next.version?'Everyone is viewing this published version. PS targets remain personal to this browser.':'No shared data published yet. An administrator needs to upload the first dataset.');
  controls();
 }
+function googleSalesFile(text,tab){
+ if(/^\s*</.test(text))throw new Error(tab+': Google returned a sign-in page. Check public sharing.');
+ const rows=parseCSV(text),headers=headersOf(rows),lookup=Object.fromEntries(headers.map(h=>[h,h]));
+ for(const key of ['Date','Store Name','Store Code','Model','Qty','Sales Amount','SR Role','PS ID','PS Name','Area','ASM','Customer','Customer Type','SR Hire Date']){
+  const aliases=key==='Store Code'?['Store Code','Store ID']: [key];
+  if(!find(lookup,...aliases))throw new Error(tab+': missing '+key+' header. Keep the original header row.');
+ }
+ return canonicalSales({name:tab+' · Google Sheets',headers,rows,size:new TextEncoder().encode(text).length});
+}
+function validateGooglePeriods(files){
+ const currentMonths=new Set(files.current.rows.map(r=>r.Date.slice(0,7)));
+ if(currentMonths.size!==1)throw new Error('CURRENT MONTH must contain one month only.');
+ const month=[...currentMonths][0];
+ if(files.fixed.rows.some(r=>r.Date.slice(0,7)>=month))throw new Error('PREVIOUS MONTHS overlaps CURRENT MONTH or contains later dates. Move completed months to PREVIOUS MONTHS without duplicating them.');
+}
+async function readGoogleSales(){
+ const entries=await Promise.all(Object.entries(salesSheet.tabs).map(async([slot,tab])=>{
+  const url='https://docs.google.com/spreadsheets/d/'+salesSheet.id+'/gviz/tq?tqx=out:csv&headers=1&tq=select%20*&sheet='+encodeURIComponent(tab);
+  const response=await fetch(url,{cache:'no-store',signal:AbortSignal.timeout(45000)});
+  if(!response.ok)throw new Error(tab+': could not read the public sheet ('+response.status+').');
+  const text=await response.text(),hash=await digest(new TextEncoder().encode(text).buffer);return [slot,{hash,file:sheetSnapshot?.hashes?.[slot]===hash?sheetSnapshot.files[slot]:googleSalesFile(text,tab)}];
+ }));
+ const sources=Object.fromEntries(entries),files={fixed:sources.fixed.file,current:sources.current.file};validateGooglePeriods(files);
+ const hashes={fixed:sources.fixed.hash,current:sources.current.hash};
+ const version=await digest(new TextEncoder().encode(JSON.stringify(hashes)).buffer),checkedAt=new Date().toISOString();
+ return {files,hashes,version,checkedAt};
+}
+function salesSourceStatus(){
+ const fallback=!sheetSnapshot,version=sheetSnapshot?.version?.slice(0,10),checked=sheetChecked?new Date(sheetChecked).toLocaleString():'Not checked yet';
+ const label=fallback?'Google Sheets sales unavailable':'Google Sheets sales · '+version;
+ $('sharedBadge').textContent=label+' · Last checked '+checked;
+ $('sharedVersion').textContent='Model scores / settings version '+(manifest?.version??'—');
+ $('lastUpdated').textContent=sheetSnapshot?'Checked '+checked:'—';$('connectionText').textContent=fallback?'Google Sheets unavailable':'Google Sheets sales';
+ $('googleSalesStatus').textContent=sheetFailure?(fallback?'No Google Sheet sales loaded. ':'Keeping the last successfully loaded sheet data. ')+sheetFailure:'Connected · checks every 60 seconds while this dashboard is visible.';
+ say(sheetFailure?$('googleSalesStatus').textContent:'Sales come from the linked Google Sheet. Model scores and settings are shared.');
+}
 async function sync(){
  if(loading||busy)return;loading=true;
  try{
   const data=await request('/rest/v1/evis_dataset?id=eq.1&select=version,updated_at,files');const next=data?.[0];if(!next)throw new Error('Shared data storage has not been initialized.');
-  if(manifest?.version===next.version){say('Shared data is up to date.');return;}
-  const files=Object.fromEntries(await Promise.all(slots.map(async slot=>[slot,await download(next.files[slot])])));
-  installFiles(files,next);clearError();
- }catch(error){say((manifest?'Showing last loaded version. Update check failed: ':'Shared data unavailable: ')+error.message);if(!manifest){state.uploads={fixed:null,current:null};state.raw=baseRaw();scoreFile=null;scoreCatalog=new Map();buildFilters();render();renderUploadUI();renderScoreFile();$('connectionText').textContent='Shared data unavailable';}showError(error.message);}
+  try{
+   const candidate=await readGoogleSales();sheetChecked=candidate.checkedAt;sheetFailure='';
+   if(candidate.version!==sheetSnapshot?.version){sheetSnapshot=candidate;try{await idbSet(sheetCacheKey,candidate);}catch{}}
+  }catch(error){sheetFailure=error.message;sheetChecked=new Date().toISOString();if(!sheetSnapshot){try{sheetSnapshot=await idbGet(sheetCacheKey);if(sheetSnapshot){validateFiles(sheetSnapshot.files);validateGooglePeriods(sheetSnapshot.files);}}catch{sheetSnapshot=null;}}}
+  if(!sheetSnapshot)throw new Error(sheetFailure||'Google Sheet sales are unavailable.');
+  const sales=sheetSnapshot.files;
+  const files={...sales,scores:await download(next.files.scores)},version=next.version+':'+(sheetSnapshot?.version||'backup');
+  if(version!==installedVersion){installFiles(files,next);installedVersion=version;}
+  clearError();salesSourceStatus();
+ }catch(error){sheetFailure=error.message;if(manifest)salesSourceStatus();else{say('Could not load dashboard data: '+error.message);$('connectionText').textContent='Data unavailable';$('googleSalesStatus').textContent='Could not load Google Sheet sales. '+error.message;}showError(error.message);}
  finally{loading=false;controls();}
 }
 async function uploadBlob(file){
@@ -84,6 +127,7 @@ async function uploadBlob(file){
  return {path,sha256:await digest(await blob.arrayBuffer()),name:file.name,rows:file.rows.length};
 }
 async function publish(changes){
+ if(Object.hasOwn(changes,'fixed')||Object.hasOwn(changes,'current'))throw new Error('Edit sales in the linked Google Sheet.');
  if(!admin)throw new Error('Administrator sign-in is required to publish data.');if(busy||loading)throw new Error('Please wait for the current update to finish.');if(!manifest)throw new Error('Load shared data before publishing.');
  busy=true;controls();say('Validating and publishing shared data…');
  try{
@@ -91,7 +135,7 @@ async function publish(changes){
   const descriptors={};for(const [slot,file] of Object.entries(changes))descriptors[slot]=file?await uploadBlob(file):null;
   const next=await request('/rest/v1/rpc/evis_publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expected_version:manifest.version,changes:descriptors})});
   for(const [slot,meta] of Object.entries(descriptors))if(meta)cache.set(meta.path,changes[slot]);
-  installFiles(files,next);toast('Shared data published · version '+next.version);
+  installFiles(files,next);salesSourceStatus();toast('Shared data published · version '+next.version);
  }catch(error){say('Publish failed. The previous shared version is unchanged. '+error.message);throw error;}
  finally{busy=false;controls();}
 }
@@ -105,51 +149,21 @@ async function login(event){
  }catch(error){admin=false;session=null;controls();say(error.message);}
 }
 const panel=document.createElement('article');panel.className='card table-card';
-panel.innerHTML='<h2>Shared Dashboard Data</h2><p id="sharedVersion">Connecting to shared data…</p><p id="sharedStatus" role="status"></p><p id="sharedAdmin"></p><form id="sharedLogin"><label for="sharedPassword">Administrator password · lucasngrealme@gmail.com</label><input id="sharedPassword" type="password" autocomplete="current-password" required><button class="secondary-btn" type="submit">Administrator sign-in</button></form><button class="secondary-btn" id="sharedLogout" hidden>Sign out</button><button class="secondary-btn" id="sharedMigrate" hidden>Publish this browser’s saved files</button><button class="secondary-btn" id="sharedHireDates" hidden>Restore hire dates from saved files</button><label class="secondary-btn" hidden>Restore SR roles from saved references<input id="sharedRoles" type="file" accept=".json" hidden></label><p class="score-note">Sales and model-score updates are shared. Viewers need no sign-in. Only administrators can upload or remove shared files. PS target edits apply only to your own browser.</p>';
+panel.innerHTML='<h2>Shared Dashboard Data</h2><p id="sharedVersion">Connecting to shared data…</p><p id="sharedStatus" role="status"></p><p id="sharedAdmin"></p><form id="sharedLogin"><label for="sharedPassword">Administrator password · lucasngrealme@gmail.com</label><input id="sharedPassword" type="password" autocomplete="current-password" required><button class="secondary-btn" type="submit">Administrator sign-in</button></form><button class="secondary-btn" id="sharedLogout" hidden>Sign out</button><p class="score-note">Sales and model-score updates are shared. Viewers need no sign-in. Only administrators can upload or remove shared files. PS target edits apply only to your own browser.</p>';
 $('dataSection').prepend(panel);
+const sourceStyle=document.createElement('style');sourceStyle.textContent='#dataSection .drop-zone[hidden]{display:none!important}#googleSalesStatus{margin-top:12px}.sales-sheet-controls{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-top:16px}.sales-sheet-controls label{display:flex;flex-direction:column;gap:8px;font-size:13px}.sales-sheet-url{flex:1 1 100%}.sales-sheet-controls input{padding:12px;border:1px solid #d8dce2;border-radius:10px;font:inherit;background:#f8f9fb;min-width:0;width:100%}.sales-sheet-controls .secondary-btn{padding:12px;text-decoration:none}.sales-sheet-controls .sales-sheet-tab{flex:1 1 180px}';document.head.append(sourceStyle);
+const salesPanel=document.createElement('article');salesPanel.className='card table-card';salesPanel.innerHTML='<h2>Sales · Google Sheet</h2><div class="sales-sheet-controls"><label class="sales-sheet-url">Public Google Sheet link<input id="salesSheetUrl" aria-label="Sales Google Sheet URL" type="url" readonly value="https://docs.google.com/spreadsheets/d/'+salesSheet.id+'/edit"></label><label class="sales-sheet-tab">Historical tab<input aria-label="Historical sales sheet tab" readonly value="PREVIOUS MONTHS"></label><label class="sales-sheet-tab">Current tab<input aria-label="Current sales sheet tab" readonly value="CURRENT MONTH"></label><a class="secondary-btn" href="https://docs.google.com/spreadsheets/d/'+salesSheet.id+'/edit" target="_blank" rel="noopener">Open sheet</a><button id="salesSheetCheck" class="secondary-btn">Check now</button></div><div id="googleSalesStatus" role="status">Connecting to sales spreadsheet…</div>';$('dataSection').prepend(salesPanel);$('salesSheetCheck').addEventListener('click',sync);
+for(const [slot,tab] of Object.entries(salesSheet.tabs)){const input=$(slot==='fixed'?'fixedFile':'currentFile');input.closest('.drop-zone').hidden=true;$(slot==='fixed'?'clearFixedBtn':'clearCurrentBtn').hidden=true;input.closest('article').querySelector('h2').textContent=tab;}
+document.querySelector('#dataSection .validation-card h2').textContent='Sales Validation';document.querySelector('#dataSection .source-intro h2').textContent='Linked sales spreadsheet';document.querySelector('#dataSection .source-intro p').textContent='Sales load automatically from PREVIOUS MONTHS and CURRENT MONTH.';
+
 document.querySelectorAll('#dataSection .source-summary strong').forEach(el=>{if(el.textContent==='Browser')el.textContent='Shared cloud';});
 document.querySelectorAll('#dataSection .score-note').forEach(el=>{if(el.textContent.startsWith('Saved in this browser.'))el.textContent=el.textContent.replace('Saved in this browser.','Published for all viewers.');});
 const badge=document.createElement('p');badge.id='sharedBadge';badge.className='score-note';badge.textContent='Shared dataset · see Data Sources for version and update time';document.querySelector('.topbar').after(badge);
 $('sharedLogin').addEventListener('submit',login);
 $('sharedLogout').addEventListener('click',async()=>{try{await request('/auth/v1/logout',{method:'POST'})}catch{}session=null;admin=false;controls();say('Signed out. Viewing shared data.');});
-function restoreAmounts(published,saved){
- if(!published)return null;
- if(!saved)throw new Error('The original sales file is not saved in this browser. Upload the source files again.');
- const source=canonicalSales(saved),keys=source.headers.filter(k=>k!=='Sales Amount'&&k!=='SR Hire Date'&&k!=='SR Role');
- if(source.rows.length!==published.rows.length||source.rows.some((r,i)=>keys.some(k=>normalize(r[k])!==normalize(published.rows[i][k]))))throw new Error('Saved sales differ from the published data. Upload the latest source files instead.');
- return {...published,headers:source.headers,rows:published.rows.map((r,i)=>({...r,'Sales Amount':normalize(r['Sales Amount'])!==''?r['Sales Amount']:source.rows[i]['Sales Amount']}))};
-}
-function restoreHireDates(published,saved){
- if(!published)return null;
- if(!saved||!saved.rows.some(r=>Object.keys(r).some(k=>/hire date/i.test(k))))throw new Error('The original sales file with Column Z is not saved in this browser. Upload the raw sales files again.');
- const source=canonicalSales(saved),keys=source.headers.filter(k=>k!=='SR Hire Date'&&k!=='SR Role');
- if(source.rows.length!==published.rows.length||source.rows.some((r,i)=>keys.some(k=>normalize(r[k])!==normalize(published.rows[i][k]))))throw new Error('Saved sales differ from the published data. Upload the latest raw files instead.');
- return {...published,headers:source.headers,rows:published.rows.map((r,i)=>({...r,'SR Hire Date':source.rows[i]['SR Hire Date']}))};
-}
-function restoreRoles(published,saved){
- if(!published)return null;
- if(!saved)throw new Error('A saved reference is missing.');
- const source=canonicalSales(saved),keys=source.headers.filter(k=>k!=='SR Role');
- if(source.rows.length!==published.rows.length||source.rows.some((r,i)=>keys.some(k=>normalize(r[k])!==normalize(published.rows[i][k]))))throw new Error('Saved reference differs from the current published sales. No data was changed.');
- if(source.rows.some(r=>!normalize(r['SR Role'])))throw new Error('Saved reference has missing SR roles.');
- return {...published,headers:source.headers,rows:published.rows.map((r,i)=>({...r,'SR Role':source.rows[i]['SR Role']}))};
-}
-$('sharedRoles').addEventListener('change',async event=>{try{const file=event.target.files[0];if(!file)return;const refs=JSON.parse(await file.text());await publish({fixed:restoreRoles(state.uploads.fixed,refs.fixed),current:restoreRoles(state.uploads.current,refs.current)});}catch(error){say(error.message);}finally{event.target.value='';}});
-$('sharedHireDates').addEventListener('click',async()=>{try{
- say('Checking original files and restoring Column Z hire dates…');
- const [fixed,current]=await Promise.all([idbGet('fixed'),idbGet('current')]);
- await publish({fixed:restoreHireDates(state.uploads.fixed,fixed),current:restoreHireDates(state.uploads.current,current)});
-}catch(error){say(error.message);}});
-$('sharedMigrate').addEventListener('click',async()=>{try{
- say('Reading and validating saved sales files…');
- const [fixed,current,scores]=await Promise.all([idbGet('fixed'),idbGet('current'),idbGet('modelScores')]);
- if(!fixed&&!current)throw new Error('No saved sales files in this browser. Upload the sales files instead.');
- if(manifest?.version===0)await publish({fixed:canonicalSales(fixed),current:canonicalSales(current),scores:canonicalScores(scores)});
- else await publish({fixed:restoreAmounts(state.uploads.fixed,fixed),current:restoreAmounts(state.uploads.current,current)});
-}catch(error){say(error.message);}});
-handleUpload=async(kind,file)=>{if(!file)return;try{await publish({[kind]:canonicalSales(await parseSalesFile(file))});}catch(error){showError(error.message);toast(error.message,true);}finally{$(kind==='fixed'?'fixedFile':'currentFile').value='';}};
+handleUpload=async()=>{toast('Edit sales in the linked Google Sheet.',true);};
 uploadScores=async(file)=>{if(!file)return;try{await publish({scores:canonicalScores(await parseSalesFile(file))});$('scoreError').textContent='';}catch(error){$('scoreError').textContent=error.message;}finally{$('scoreFile').value='';}};
-clearUpload=async(kind)=>{try{await publish({[kind]:null});}catch(error){showError(error.message);}};
+clearUpload=async()=>{toast('Edit sales in the linked Google Sheet.',true);};
 restoreUploads=async()=>{await sync();return true;};refresh=sync;
 const previousScoreFile=renderScoreFile;renderScoreFile=()=>{previousScoreFile();controls();};
 setInterval(()=>{if(document.visibilityState==='visible')sync();},60000);
