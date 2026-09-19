@@ -229,3 +229,26 @@ document.addEventListener('DOMContentLoaded',async()=>{
   document.querySelectorAll('.drop-zone').forEach(zone=>{zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('dragover')});zone.addEventListener('dragleave',()=>zone.classList.remove('dragover'));zone.addEventListener('drop',e=>{e.preventDefault();zone.classList.remove('dragover');const input=zone.querySelector('input');const file=e.dataTransfer.files[0];if(file)handleUpload(input.id==='fixedFile'?'fixed':'current',file)})});
   $('refreshBtn').addEventListener('click',refresh); const restored=await restoreUploads(); if(!restored)await refresh(); if(CFG.refreshMs>0)setInterval(()=>{if(!combinedUploads().length)refresh()},CFG.refreshMs);
 });
+
+// Device-local display preference; never changes shared dashboard data.
+(()=>{
+ const root=document.documentElement,key='wvis-night-mode';
+ let night=false;try{night=localStorage.getItem(key)==='true';}catch{}
+ root.dataset.theme=night?'night':'day';
+ const button=document.createElement('button');button.type='button';button.id='nightModeToggle';button.className='secondary-btn';
+ const label=()=>{button.textContent=night?'☀ Day mode':'☾ Night mode';button.setAttribute('aria-pressed',String(night));button.setAttribute('aria-label',night?'Switch to day mode':'Switch to night mode');};
+ label();document.querySelector('.top-actions').prepend(button);
+ const originals=new WeakMap();
+ function set(obj,prop,value){if(!obj)return;let saved=originals.get(obj);if(!saved){saved={};originals.set(obj,saved);}if(!(prop in saved))saved[prop]=obj[prop];if(night)obj[prop]=value;else if(saved[prop]===undefined)delete obj[prop];else obj[prop]=saved[prop];}
+ const palette={'#111214':'#b6c5dc','#2563eb':'#78aaff','#d28b00':'#f8c65b','#15966b':'#62d6ad','#9333ea':'#c49bff','#db496c':'#ff91ad','#078aab':'#6dd6eb','#815b37':'#d9b18e'};
+ const bright=value=>Array.isArray(value)?value.map(bright):typeof value==='string'?(palette[value.toLowerCase()]||(value.endsWith('70')&&palette[value.slice(0,-2).toLowerCase()]?palette[value.slice(0,-2).toLowerCase()]+'99':value)):value;
+ Chart.register({id:'wvisNightMode',beforeUpdate(c){
+  const o=c.config.options;
+  set(o,'color','#cbd5e1');
+  const p=o.plugins||(o.plugins={}),legend=p.legend||(p.legend={}),labels=legend.labels||(legend.labels={});set(labels,'color','#dce5f0');
+  const tooltip=p.tooltip||(p.tooltip={});set(tooltip,'backgroundColor','#e7edf6');set(tooltip,'titleColor','#101827');set(tooltip,'bodyColor','#101827');set(tooltip,'footerColor','#101827');
+  Object.values(o.scales||{}).forEach(s=>{for(const part of ['ticks','title']){s[part]||={};set(s[part],'color','#bdc9da');}s.grid||={};set(s.grid,'color',ctx=>ctx.tick?.value===0?'#7d8da5':'#354155');s.border||={};set(s.border,'color','#526078');});
+  c.data.datasets.forEach(d=>{for(const prop of ['backgroundColor','borderColor','pointBackgroundColor','pointBorderColor']){const saved=originals.get(d);set(d,prop,bright(saved&&prop in saved?saved[prop]:d[prop]));}});
+ }});
+ button.addEventListener('click',()=>{night=!night;root.dataset.theme=night?'night':'day';try{localStorage.setItem(key,String(night));}catch{}label();Object.values(Chart.instances).forEach(c=>c.update('none'));});
+})();

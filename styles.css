@@ -26,3 +26,40 @@ input,textarea{font-family:inherit}
 .sidebar-secondary-nav .nav-item{font-size:11px;line-height:1.4;padding:7px 10px;border-radius:7px}
 .sidebar-secondary-nav+.sidebar-foot{margin-top:6px}
 @media(max-width:760px){.sidebar-secondary-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin-top:10px;padding-top:10px;border-top:1px solid #303238}.sidebar-secondary-nav .nav-item{white-space:normal;min-height:40px}}
+
+/* Night mode: preserve meaning and contrast throughout every dashboard view. */
+html[data-theme=night]{color-scheme:dark;--bg:#101621;--card:#1b2432;--text:#edf2f8;--muted:#b5c0d0;--line:#465267;--green:#78dfaa;--red:#ff9696;--shadow:0 8px 24px #0003}
+html[data-theme=night] .card,html[data-theme=night] .filters{background:var(--card)!important;color:var(--text);border-color:var(--line)!important}
+html[data-theme=night] :is(input,select,textarea){background:#141d2b!important;color:#edf2f8!important;border-color:#536078!important}
+html[data-theme=night] :is(input,textarea)::placeholder{color:#aebacc}
+html[data-theme=night] :is(.secondary-btn,button.panel-collapse,button.panel-expand){background:#273348!important;color:#e4ebf6!important;border-color:#536078!important}
+html[data-theme=night] :is(button,input,select,a):focus-visible{outline:2px solid #ffdc66;outline-offset:3px}
+html[data-theme=night] button[aria-pressed=true]:not(.nav-item){background:#584a1e!important;color:#ffe398!important;border-color:#bf9b36!important}
+html[data-theme=night] .refresh-btn{color:#15171a}
+html[data-theme=night] :is(th,td,table,.table-wrap){border-color:#465267!important}
+html[data-theme=night] table :is(th,tfoot td){background:#2a3547!important;color:#e3eaf4!important}
+html[data-theme=night] table th[scope=colgroup]{background:#344158!important}
+html[data-theme=night] tbody tr:hover{background:#263348!important}
+html[data-theme=night] :is(.file-meta,.source-summary>div,.drop-zone){background:#17202e!important;border-color:#465267!important}
+html[data-theme=night] :is(.combined-pill,.accent-card){background:#38321f!important;border-color:#a78b35!important}
+html[data-theme=night] :is(.eyebrow,.combined-pill small){color:#f4d474!important}
+html[data-theme=night] :is(.overview-kpi-comparison,.overview-target-ar,.top50-dealer-controls span,.score-note,.schema-message,.meta-empty){color:#b5c0d0!important}
+html[data-theme=night] .overview-target-ar strong{color:#edf2f8!important}
+html[data-theme=night] :is(.up,[style*="color:#238747"],[style*="color:#238344"]){color:#78dfaa!important}
+html[data-theme=night] :is(.down,.danger-text,[style*="color:#c93636"],[style*="color:#c63c3c"]){color:#ff9696!important}
+html[data-theme=night] .steady{color:#92bdff!important}
+html[data-theme=night] :is(.badge.good,[data-performance-status=passed],.productivity-cohort-table tbody td:nth-child(3)){background:#193e30!important;color:#a1efbe!important}
+html[data-theme=night] :is(.badge.bad,.asm-resigned,[data-performance-status=low],.productivity-cohort-table tbody td:nth-child(6),.error-banner){background:#4a272e!important;color:#ffb4b4!important}
+html[data-theme=night] :is([data-performance-status=onpace],.productivity-cohort-table tbody td:nth-child(5)){background:#483820!important;color:#ffcf94!important}
+html[data-theme=night] :is([data-performance-status=pending],.badge){background:#344158;color:#dce5f2}
+html[data-theme=night] :is(dialog.dashboard-fullscreen,.fullscreen-toolbar){background:#101621!important;color:#edf2f8!important}
+html[data-theme=night] .dashboard-fullscreen::backdrop{background:#101621}
+html[data-theme=night] a{color:#9cc5ff}
+html[data-theme=night] .progress{background:#465267}
+html[data-theme=night] table tbody tr.inactive-customer-cover,html[data-theme=night] table tbody tr.inactive-customer-cover *,html[data-theme=night] table tbody tr.inactive-customer-cover>*{background:#000!important;color:#000!important;border-color:#000!important}
+#nightModeToggle{white-space:nowrap} .top-actions{flex-wrap:wrap}
+html[data-theme=night] :is(.employment-active){background:#193e30!important;color:#a1efbe!important}
+html[data-theme=night] :is(.employment-resigned){background:#4a272e!important;color:#ffb4b4!important}
+html[data-theme=night] tr[data-employment=resigned] td:first-child strong,html[data-theme=night] .remove-range,html[data-theme=night] #asmIncentiveNotice{color:#ffb4b4!important}
+html[data-theme=night] :is(.trend-period,.push-controls p){color:#b5c0d0!important}
+html[data-theme=night] button.panel-close{background:#ff726b!important;color:#3d0805!important;border-color:#ffaaa5!important}
