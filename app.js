@@ -167,7 +167,7 @@ function render(){ filterData(); const rows=state.filteredSales; const sales=row
   $('salesKpi').textContent=fmt(sales); $('targetKpi').textContent=fmt(target); $('achievementKpi').textContent=pct(ach); $('gapKpi').textContent=fmt(gap); $('runRateKpi').textContent=fmt(sales/elapsed,1); $('requiredRunRateKpi').textContent=fmt(gap/remaining,1); $('achievementBar').style.width=`${Math.min(ach,100)}%`; $('periodLabel').textContent=`${monthName(selected('monthFilter'))} performance`;
 
   renderOverviewTrend();
-  const area=sumBy(rows,'_area').slice(0,8); chart('areaChart','bar',area.map(x=>x[0]),[{data:area.map(x=>x[1]),backgroundColor:'#ffc915',borderRadius:7}],{});
+  renderDealerTrend();
   const cust=sumBy(rows,'_customer').slice(0,7); chart('customerChart','bar',cust.map(x=>x[0]),[{data:cust.map(x=>x[1]),backgroundColor:'#111214',borderRadius:6}],{});
   renderOverviewMix(rows);
   const ch=sumBy(rows,'_channel').slice(0,6); chart('channelChart','bar',ch.map(x=>x[0]),[{data:ch.map(x=>x[1]),backgroundColor:'#ffc915',borderRadius:6}],{});
@@ -193,9 +193,18 @@ function filteredPromoterAggregates(rows){
 function renderStores(rows){
   const a=storeAggregates(rows).sort((x,y)=>y.sales-x.sales); $('topStoresBody').innerHTML=a.slice(0,10).map(x=>`<tr><td><strong>${escapeHtml(x.store)}</strong></td><td>${escapeHtml(x.area)}</td><td>${escapeHtml(x.asm)}</td><td>${fmt(x.sales)}</td></tr>`).join('')||emptyRow(4); $('bottomStoresBody').innerHTML=[...a].sort((x,y)=>x.sales-y.sales).slice(0,10).map(x=>`<tr><td><strong>${escapeHtml(x.store)}</strong></td><td>${escapeHtml(x.area)}</td><td>${escapeHtml(x.asm)}</td><td>${fmt(x.sales)}</td></tr>`).join('')||emptyRow(4); $('storeTableBody').innerHTML=a.map(x=>`<tr><td><strong>${escapeHtml(x.store)}</strong></td><td>${escapeHtml(x.customer)}</td><td>${escapeHtml(x.area)}</td><td>${escapeHtml(x.asm)}</td><td>${escapeHtml(x.channel)}</td><td>${fmt(x.sales)}</td><td>${fmt(x.inventory)}</td></tr>`).join('')||emptyRow(7);
 }
+
+function promoterHireTypes(all,month){
+ const cutoff=all.filter(r=>modelMonthKey(r._date)===month).reduce((d,r)=>Math.max(d,productivityCalendarDay(r._date)??-Infinity),-Infinity),latest=new Map();
+ for(const r of all){const date=productivityCalendarDay(r._date),value=find(r,'SR Hire Date','Hire Date');if(date===null||date>cutoff||!normalize(value))continue;
+  for(const key of [rosterCode(r._ps),'name:'+rosterName(find(r,'PS Name','Promoter Name'))])if(key&&(!latest.has(key)||date>=latest.get(key).date))latest.set(key,{date,hire:productivityHireDay(value)});
+ }
+ return new Map([...latest].map(([key,{hire}])=>[key,hire===null?'NHT (date unavailable)':hire>cutoff?'NHT (hire date after period)':cutoff-hire+1>=30?'REG PS':'NHT ('+new Date(hire*86400000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'})+')']));
+}
+
 function renderPromoters(rows){
-  const list=filteredPromoterAggregates(rows);
-  const active=list.filter(x=>x.sales>0).length,total=list.length; $('psCountKpi').textContent=fmt(total); $('activePsKpi').textContent=fmt(active); $('salesPerPsKpi').textContent=fmt(total?rows.reduce((s,r)=>s+r._qty,0)/total:0,1); $('zeroPsKpi').textContent=fmt(total-active); $('psTableBody').innerHTML=list.map(x=>`<tr data-promoter-id="${escapeHtml(x.pid)}"><td><strong>${escapeHtml(x.name)}</strong></td><td>${escapeHtml(x.store)}</td><td>${escapeHtml(x.area)}</td><td>${escapeHtml(x.asm)}</td><td>${fmt(x.sales)}</td><td><span class="badge ${x.sales>0?'good':'bad'}">${x.sales>0?'With sales':'Zero sales'}</span></td></tr>`).join('')||emptyRow(6);
+  const list=filteredPromoterAggregates(rows),hireTypes=promoterHireTypes(salesEnriched(),selected('monthFilter'));
+  const active=list.filter(x=>x.sales>0).length,total=list.length; $('psCountKpi').textContent=fmt(total); $('activePsKpi').textContent=fmt(active); $('salesPerPsKpi').textContent=fmt(total?rows.reduce((s,r)=>s+r._qty,0)/total:0,1); $('zeroPsKpi').textContent=fmt(total-active); $('psTableBody').innerHTML=list.map(x=>`<tr data-promoter-id="${escapeHtml(x.pid)}"><td><strong>${escapeHtml(x.name)}</strong></td><td>${escapeHtml(x.store)}</td><td>${escapeHtml(hireTypes.get(rosterCode(x.pid))||hireTypes.get('name:'+rosterName(x.name))||'NHT (date unavailable)')}</td><td>${escapeHtml(x.asm)}</td><td>${fmt(x.sales)}</td><td><span class="badge ${x.sales>0?'good':'bad'}">${x.sales>0?'With sales':'Zero sales'}</span></td></tr>`).join('')||emptyRow(6);
 }
 function renderInventory(rows){
   const inv=inventoryRows(), total=inv.reduce((s,r)=>s+r._inv,0), stores=storeAggregates(rows), withStock=stores.filter(x=>x.inventory>0).length, zero=Math.max(stores.length-withStock,0), sales=rows.reduce((s,r)=>s+r._qty,0), dates=uniq(rows.map(r=>r._date.toISOString().slice(0,10))).length||1, daily=sales/dates, doh=daily?total/daily:0;

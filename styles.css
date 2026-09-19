@@ -63,3 +63,4 @@ html[data-theme=night] :is(.employment-resigned){background:#4a272e!important;co
 html[data-theme=night] tr[data-employment=resigned] td:first-child strong,html[data-theme=night] .remove-range,html[data-theme=night] #asmIncentiveNotice{color:#ffb4b4!important}
 html[data-theme=night] :is(.trend-period,.push-controls p){color:#b5c0d0!important}
 html[data-theme=night] button.panel-close{background:#ff726b!important;color:#3d0805!important;border-color:#ffaaa5!important}
+html[data-theme=night] .table-sort-button,html[data-theme=night] .table-sort-button:hover,html[data-theme=night] .table-sort-button:focus{color:#e3eaf4!important}
