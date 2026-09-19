@@ -64,3 +64,12 @@ html[data-theme=night] tr[data-employment=resigned] td:first-child strong,html[d
 html[data-theme=night] :is(.trend-period,.push-controls p){color:#b5c0d0!important}
 html[data-theme=night] button.panel-close{background:#ff726b!important;color:#3d0805!important;border-color:#ffaaa5!important}
 html[data-theme=night] .table-sort-button,html[data-theme=night] .table-sort-button:hover,html[data-theme=night] .table-sort-button:focus{color:#e3eaf4!important}
+
+/* Match territory status columns to the promoter status colors, including totals. */
+html .dashboard-section table:has(#performanceareaBody,#performancesubregionBody) tr>:nth-child(5){background:#e2f3e5!important;color:#235b32!important}
+html .dashboard-section table:has(#performanceareaBody,#performancesubregionBody) tr>:nth-child(6){background:#fff0db!important;color:#80501d!important}
+html .dashboard-section table:has(#performanceareaBody,#performancesubregionBody) tr>:nth-child(7){background:#fbe3e3!important;color:#8c3030!important}
+html[data-theme=night] .dashboard-section table:has(#performanceareaBody,#performancesubregionBody) tr>:nth-child(5){background:#193e30!important;color:#a1efbe!important}
+html[data-theme=night] .dashboard-section table:has(#performanceareaBody,#performancesubregionBody) tr>:nth-child(6){background:#483820!important;color:#ffcf94!important}
+html[data-theme=night] .dashboard-section table:has(#performanceareaBody,#performancesubregionBody) tr>:nth-child(7){background:#4a272e!important;color:#ffb4b4!important}
+html .dashboard-section table:has(#performanceareaBody,#performancesubregionBody) tr>:is(:nth-child(5),:nth-child(6),:nth-child(7)) .table-sort-button{color:inherit!important}
