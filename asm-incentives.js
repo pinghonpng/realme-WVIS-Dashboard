@@ -6,19 +6,19 @@ function asmIncentiveReport(all,roster,month){
  const role=r=>normalize(find(r,'SR Role')).toUpperCase(),latest=new Map(),groups=new Map();
  const territory=r=>JSON.stringify([r._area||'Unassigned',r._asm||'Unassigned']);
  const group=r=>{const key=territory(r);if(!groups.has(key))groups.set(key,{key,area:r._area||'Unassigned',subregion:r._asm||'Unassigned',headcount:0,promoterUnits:0,promoterScore:0,flUnits:0,flScore:0,missing:!roster,people:new Map()});return groups.get(key);};
- const person=(g,key,name,type,active)=>{const k=JSON.stringify([key,type]);if(!g.people.has(k))g.people.set(k,{name,type,active,units:0,score:0,deduction:0,missing:false});return g.people.get(k);};
+ const person=(g,key,name,type,active)=>{const k=JSON.stringify([key,type]);if(!g.people.has(k))g.people.set(k,{name,type,active,units:0,score:0,deduction:0,missing:false,store:'',stores:new Set()});return g.people.get(k);};
  for(const r of all){if(!r._date||isNaN(r._date)||+r._date>cutoff)continue;const e=match(r);if(e&&(!latest.has(e.key)||r._date>=latest.get(e.key)._date))latest.set(e.key,r);}
  for(const r of period){
   const rawRole=role(r),type=['SP','NHT'].includes(rawRole)?'Promoter':rawRole==='FL'?'FL':rawRole||'Unknown role',e=match(r),g=group(r);
   const name=normalize(find(r,'PS Name','Promoter Name'))||normalize(r._ps)||'Unassigned',key=e?.key||rosterCode(r._ps)||rosterName(name);
-  const p=person(g,key,name,type,!!e);p.units+=r._qty;p.score+=r._points??0;
+  const p=person(g,key,name,type,!!e);p.units+=r._qty;p.score+=r._points??0;if(type==='Promoter')p.store=normalize(e?.store);if(type==='FL'){const store=normalize(r._store||find(r,'Store Name','Store','Outlet','Shop'));if(store)p.stores.add(store);}
   if(type==='Promoter'){g.promoterUnits+=r._qty;g.promoterScore+=r._points??0;}
   if(type==='FL'){g.flUnits+=r._qty;g.flScore+=r._points??0;}
   if(!rawRole||(['Promoter','FL'].includes(type)&&r._points==null)){p.missing=true;g.missing=true;}
  }
  // Charge each active promoter once, at their latest recorded territory; include zero sales.
  for(const e of roster?.entries||[]){const r=latest.get(e.key);if(r&&role(r)&&!['SP','NHT'].includes(role(r)))continue;
-  const g=group({_area:r?._area||e.area,_asm:r?._asm||e.asm}),p=person(g,e.key,e.name,'Promoter',true);g.headcount++;p.deduction=100;
+  const g=group({_area:r?._area||e.area,_asm:r?._asm||e.asm}),p=person(g,e.key,e.name,'Promoter',true);g.headcount++;p.deduction=100;p.store=normalize(e.store);
  }
  for(const g of groups.values()){
   g.promoterContribution=(g.promoterScore-100*g.headcount)*4;g.flContribution=g.flScore*10;g.incentive=g.promoterContribution+g.flContribution;
@@ -39,11 +39,11 @@ function asmIncentiveTotal(groups){return groups.reduce((t,g)=>{for(const k of [
   const roster=window.evisRoster?.getRoster(),report=asmIncentiveReport(all,roster,select.value),sub=$('asmIncentiveSubregion'),prior=sub.value;
   sub.innerHTML='<option value="ALL">All subregions</option>'+report.groups.map(g=>'<option value="'+escapeHtml(g.key)+'">'+escapeHtml(g.area+' / '+g.subregion)+'</option>').join('');sub.value=report.groups.some(g=>g.key===prior)?prior:'ALL';
   const groups=report.groups.filter(g=>sub.value==='ALL'||g.key===sub.value),total=asmIncentiveTotal(groups),detail=$('asmIncentiveView').value==='contributions';
-  const cols=detail?['Name','Role','Area','Subregion','Sales Units','Score','Baseline Score','Promoter × ₱4','FL × ₱10','Contribution']:['Area','Subregion','Active PS','Promoter Units','Promoter Score','FL Units','FL Score','Promoter × ₱4','FL × ₱10','Running Incentive'];
+  const cols=detail?['Name','Role','Current Store Assignment','Subregion','Sales Units','Score','Baseline Score','Promoter × ₱4','FL × ₱10','Contribution']:['Area','Subregion','Active PS','Promoter Units','Promoter Score','FL Units','FL Score','Promoter × ₱4','FL × ₱10','Running Incentive'];
   if($('asmIncentiveHead').dataset.view!==String(detail)){$('asmIncentiveHead').innerHTML='<tr>'+cols.map(s=>'<th>'+s+'</th>').join('')+'</tr>';$('asmIncentiveHead').dataset.view=String(detail);}
   $('asmIncentiveHeading').textContent=detail?'Promoter / FL Contributions':'Subregion Incentives';
   const summary=g=>'<tr>'+cell(g.area)+cell(g.subregion)+numeric(g.headcount,!roster)+numeric(g.promoterUnits)+numeric(g.promoterScore,g.missing)+numeric(g.flUnits)+numeric(g.flScore,g.missing)+money(g.promoterContribution,g.missing)+money(g.flContribution,g.missing)+money(g.incentive,g.missing)+'</tr>';
-  $('asmIncentiveBody').innerHTML=detail?groups.flatMap(g=>g.people.map(p=>'<tr>'+cell(p.name)+'<td class="'+(roster&&p.type==='Promoter'&&!p.active?'asm-resigned':'')+'">'+escapeHtml(p.type==='Promoter'?(roster?(p.active?'Promoter':'Promoter (Resigned)'):'Promoter (status pending)'):p.type==='FL'?'FL':p.type+' (excluded)')+'</td>'+cell(g.area)+cell(g.subregion)+numeric(p.units)+numeric(p.score,p.missing)+numeric(p.deduction,!roster)+money(p.promoterContribution,p.missing||!roster)+money(p.flContribution,p.missing||!roster)+money(p.incentive,p.missing||!roster)+'</tr>')).join('')||emptyRow(10):groups.map(summary).join('')||emptyRow(10);
+  $('asmIncentiveBody').innerHTML=detail?groups.flatMap(g=>g.people.map(p=>'<tr>'+cell(p.name)+'<td class="'+(roster&&p.type==='Promoter'&&!p.active?'asm-resigned':'')+'">'+escapeHtml(p.type==='Promoter'?(roster?(p.active?'Promoter':'Promoter (Resigned)'):'Promoter (status pending)'):p.type==='FL'?'FL':p.type+' (excluded)')+'</td>'+cell(p.type==='FL'?[...p.stores].sort().join(' / ')||'—':p.store||'—')+cell(g.subregion)+numeric(p.units)+numeric(p.score,p.missing)+numeric(p.deduction,!roster)+money(p.promoterContribution,p.missing||!roster)+money(p.flContribution,p.missing||!roster)+money(p.incentive,p.missing||!roster)+'</tr>')).join('')||emptyRow(10):groups.map(summary).join('')||emptyRow(10);
   const people=groups.flatMap(g=>g.people);$('asmIncentiveTotal').innerHTML=detail?'<tr>'+cell('WVIS')+cell('')+cell('')+cell('')+numeric(people.reduce((s,p)=>s+p.units,0))+numeric(people.reduce((s,p)=>s+p.score,0),total.missing)+numeric(total.headcount*100,!roster)+money(total.promoterContribution,total.missing)+money(total.flContribution,total.missing)+money(total.incentive,total.missing)+'</tr>':summary(total);
   $('asmIncentiveNotice').textContent=!roster?'Waiting for the ACTIVE promoter list. Incentives will appear once it loads.':groups.some(g=>g.missing)?'Incentive unavailable for rows with missing SR Role or model scores. Restore Column L or update the scoring file in Data Sources.':'';
   if(section.classList.contains('active'))$('periodLabel').textContent=monthName(select.value)+(Number.isFinite(report.cutoff)?' · through '+new Date(report.cutoff).toLocaleDateString():'');
