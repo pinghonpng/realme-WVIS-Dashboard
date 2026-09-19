@@ -62,11 +62,11 @@ function activePerformanceRows(rows,roster,filters,stores){
    if(!response.ok)throw new Error('Google Sheet could not be read. Check public sharing and the tab name.');
    const text=await response.text();if(/^\s*</.test(text))throw new Error('Google returned a page instead of data. Check public sharing.');
    const next=rosterParse(parseCSV(text));if(epoch!==generation)return;
-   roster=next;lastChecked=new Date();$('rosterStatus').textContent=next.count+' ACTIVE promoters · Last checked '+lastChecked.toLocaleString();renderPromoters(state.filteredSales);decorate();window.evisProductivity?.render();window.evisPsSalesReview?.render();window.evisPushModels?.render();window.evisOverviewTargets?.render();
+   roster=next;lastChecked=new Date();$('rosterStatus').textContent=next.count+' ACTIVE promoters · Last checked '+lastChecked.toLocaleString();renderPromoters(state.filteredSales);decorate();window.evisProductivity?.render();window.evisPsSalesReview?.render();window.evisPushModels?.render();window.evisOverviewTargets?.render();window.evisAsmIncentives?.render();
   }catch(error){if(epoch===generation)$('rosterStatus').textContent=(roster?'Using last verified HR list. ':'HR status unavailable; promoters are not marked resigned. ')+error.message;}
   finally{checking=false;if(epoch!==generation)check();}
  }
- function setConfig(next){next=next||defaultConfig;if(config&&config.url===next.url&&config.tab===next.tab)return;config={url:next.url,tab:next.tab};generation++;roster=null;decorate();window.evisPsSalesReview?.render();window.evisPushModels?.render();window.evisOverviewTargets?.render();$('rosterUrl').value=config.url;$('rosterTab').value=config.tab;check();}
+ function setConfig(next){next=next||defaultConfig;if(config&&config.url===next.url&&config.tab===next.tab)return;config={url:next.url,tab:next.tab};generation++;roster=null;decorate();window.evisPsSalesReview?.render();window.evisPushModels?.render();window.evisOverviewTargets?.render();window.evisAsmIncentives?.render();$('rosterUrl').value=config.url;$('rosterTab').value=config.tab;check();}
  $('rosterRefresh').addEventListener('click',check);
  $('rosterForm').addEventListener('submit',async event=>{event.preventDefault();const next={url:$('rosterUrl').value.trim(),tab:$('rosterTab').value.trim()};try{const url=new URL(next.url);if(url.hostname!=='docs.google.com'||!sheetIdFromUrl(url.href)||!next.tab)throw new Error('Enter a public Google Sheets link and tab name.');await window.evisSaveRoster(next);await check();}catch(error){$('rosterStatus').textContent=error.message;}});
  window.evisRoster={getRoster:()=>roster,setConfig,setAdmin:(allowed)=>{['rosterUrl','rosterTab','rosterSave'].forEach(id=>$(id).disabled=!allowed);}};

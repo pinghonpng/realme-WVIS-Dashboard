@@ -21,8 +21,8 @@
   const moves=[];function move(node){if(!node)return;const marker=document.createComment('fullscreen-position');node.before(marker);moves.push([node,marker]);dialog.append(node);}
   const details=[...card.querySelectorAll('details')].filter(node=>node.contains(target)).map(node=>[node,node.open]);details.forEach(([node])=>node.open=true);
   active={dialog,moves,card,target,button,scroll,canvasSizes,hidden:target.hidden,details,collapsed:card.classList.contains('chart-collapsed')};card.classList.remove('chart-collapsed');
-  if(section.id!=='productivitySection')move(document.querySelector('.filters'));
-  const extra=section.querySelector('.push-controls');if(extra)move(extra);
+  if(!['productivitySection','asmIncentivesSection'].includes(section.id))move(document.querySelector('.filters'));
+  const extra=section.querySelector('.push-controls,.asm-controls');if(extra)move(extra);
   move(card);target.hidden=false;target.classList.add('fullscreen-target');card.classList.add('fullscreen-card');
   document.body.classList.add('has-fullscreen');dialog.addEventListener('cancel',event=>{event.preventDefault();close();});dialog.showModal();syncTrendMonthLock();resize();exit.focus();
  }
