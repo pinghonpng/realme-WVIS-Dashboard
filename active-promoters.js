@@ -95,6 +95,9 @@ function psSalesReviewData(all,roster,filters,stores){
  document.querySelector('.nav-item[data-section="dealers"]').after(tab);
  const section=$('dealersSection').cloneNode(true);section.id='psSalesReviewSection';
  section.querySelector('h2').textContent='PS Sales Review';
+ let measure='qty';try{const saved=localStorage.getItem('wvis.psSalesMeasure');if(['qty','amount','score'].includes(saved))measure=saved;}catch{}
+ section.querySelector('.top50-dealer-controls').innerHTML=['qty','amount','score'].map(m=>'<button type="button" class="secondary-btn" data-ps-measure="'+m+'" aria-pressed="'+(m===measure)+'">'+({qty:'Sales QTY',amount:'Sales Amount (₱)',score:'Scores'}[m])+'</button>').join('');
+ document.addEventListener('click',e=>{const b=e.target.closest('[data-ps-measure]');if(!b)return;measure=b.dataset.psMeasure;try{localStorage.setItem('wvis.psSalesMeasure',measure);}catch{}review();});
  section.querySelector('.score-note').textContent='Current ACTIVE promoters matching the area, subregion, dealer and channel filters are shown, including zero sales. All universal filters apply to sales and monthly comparisons.';
  section.querySelector('tbody').id='psSalesReviewBody';section.querySelector('th').textContent='Promoter';
  section.querySelector('thead tr').cells[2].remove();section.querySelector('tbody td').colSpan=10;
@@ -105,8 +108,9 @@ function psSalesReviewData(all,roster,filters,stores){
   const roster=window.evisRoster.getRoster();
   notice.textContent=roster?'':'Loading the active HR roster. Sales results will appear after verification.';
   const data=psSalesReviewData(salesEnriched(),roster,{area:selected('areaFilter'),asm:selected('asmFilter'),customer:selected('customerFilter'),channel:selected('channelFilter')},storeMap());
-  renderModelHistory([], 'psSalesReviewBody','_reviewPs','Promoter',data);
+  renderModelHistory([], 'psSalesReviewBody','_reviewPs','Promoter',{...data,measure});
+  section.querySelectorAll('[data-ps-measure]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.psMeasure===measure)));
  }
  const style=document.createElement('style');style.textContent='#psSalesReviewBody .model-rate{white-space:nowrap;font-weight:600}#psSalesReviewBody .up{color:#238344}#psSalesReviewBody .down{color:#c63c3c}#psSalesReviewBody .steady{color:#286bc1}#psSalesReviewBody td{font-variant-numeric:tabular-nums}';document.head.appendChild(style);
- window.evisPsSalesReview={render:review};const before=render;render=()=>{before();review();};
+ window.evisPsSalesReview={render:review,measure:()=>measure};const before=render;render=()=>{before();review();};
 })();
