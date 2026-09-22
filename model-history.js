@@ -11,53 +11,57 @@ function modelRateCell(current,previous){const rate=modelRate(current,previous),
 function historyMonthLabel(month){const [year,num]=month.split('-').map(Number);return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][num-1]+' '+year;}
 function historyPairLabel(from,to){return from.slice(0,4)===to.slice(0,4)?historyMonthLabel(from).slice(0,3)+' → '+historyMonthLabel(to):historyMonthLabel(from)+' → '+historyMonthLabel(to);}
 function historyTotalDecline(keys,current,previous){return keys.reduce((sum,key)=>sum+Math.max(0,(previous.get(key)||0)-(current.get(key)||0)),0);}
-function modelGapCell(current,previous,totalDecline,summary=false){
+function modelGapCell(current,previous,totalDecline,summary=false,currency=false){
  if(current===null||previous===null||totalDecline===null)return '<td data-sort-value="" class="model-rate missing">—</td>';
  const gap=current-previous,kind=gap>0?'up':gap<0?'down':'steady';
  const share=totalDecline>0?(summary?100:Math.max(0,-gap)/totalDecline*100):0;
- const title=summary?'Net unit gap; percentage totals the decline shares of displayed rows. Total lost units: '+fmt(totalDecline):'Share of total decline: lost units divided by '+fmt(totalDecline)+' lost units across displayed rows.';
- return `<td data-sort-value="${gap}" class="model-rate ${kind}" title="${title}">${gap>0?'+':''}${fmt(gap)} (${share.toFixed(2)}%)</td>`;
+ const format=currency?php:fmt;
+ const title=currency?'Net sales amount gap; percentage is the share of total sales amount decline.':summary?'Net unit gap; percentage totals the decline shares of displayed rows. Total lost units: '+fmt(totalDecline):'Share of total decline: lost units divided by '+fmt(totalDecline)+' lost units across displayed rows.';
+ return `<td data-sort-value="${gap}" class="model-rate ${kind}" title="${title}">${gap>0?'+':''}${format(gap)} (${share.toFixed(2)}%)</td>`;
 }
 function historyColumnLabels(entity,month,hideShare=false){
  const previous=modelMonthOffset(month,-1),past=[-3,-2,-1].map(offset=>modelMonthOffset(month,offset));
  return [entity,historyMonthLabel(month)+' MTD',historyMonthLabel(previous)+' MTD','MTD Gap (Decline Share)',...(hideShare?[]:['MTD Market Share']),historyPairLabel(previous,month)+' MTD IR',...past.map(historyMonthLabel),...past.map(m=>historyPairLabel(modelMonthOffset(m,-1),m))];
 }
-function modelHistoryData(all,month,filters,groupKey='_model'){
+function modelHistoryData(all,month,filters,groupKey='_model',measure=r=>r._qty){
   const months=Array.from({length:5},(_,i)=>modelMonthOffset(month,-i));
   const buckets=new Map(months.map(m=>[m,{latest:0,rows:[],sales:new Map()}]));
-  all.forEach(r=>{const bucket=buckets.get(modelMonthKey(r._date));if(!bucket)return;bucket.latest=Math.max(bucket.latest,r._date.getDate());if(filters.every(([key,value])=>passes(r[key],value))){bucket.rows.push(r);const model=r[groupKey]||'Unknown';bucket.sales.set(model,(bucket.sales.get(model)||0)+r._qty);}});
+  all.forEach(r=>{const bucket=buckets.get(modelMonthKey(r._date));if(!bucket)return;bucket.latest=Math.max(bucket.latest,r._date.getDate());if(filters.every(([key,value])=>passes(r[key],value))){bucket.rows.push(r);const model=r[groupKey]||'Unknown';bucket.sales.set(model,(bucket.sales.get(model)||0)+measure(r));}});
   const cutoff=buckets.get(month).latest,previous=months[1];
   const [py,pm]=previous.split('-').map(Number),previousEnd=Math.min(cutoff,new Date(py,pm,0).getDate());
   const prior=buckets.get(previous),matched=new Map();
-  prior.rows.filter(r=>r._date.getDate()<=previousEnd).forEach(r=>{const model=r[groupKey]||'Unknown';matched.set(model,(matched.get(model)||0)+r._qty);});
+  prior.rows.filter(r=>r._date.getDate()<=previousEnd).forEach(r=>{const model=r[groupKey]||'Unknown';matched.set(model,(matched.get(model)||0)+measure(r));});
   return {months,buckets,cutoff,previousEnd,matched,matchedAvailable:cutoff>0&&prior.latest>=previousEnd};
 }
 function renderModelHistory(rows,bodyId='modelTableBody',groupKey='_model',entityLabel='Model',options={}){
   const month=selected('monthFilter');if(!/^\d{4}-\d{2}$/.test(month))return;
   const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
-  const history=modelHistoryData(options.all||salesEnriched(),month,[...filters,...(options.filters||[])],groupKey),{months,buckets}=history;
+  const currency=options.measure==='amount',format=currency?php:fmt,measure=currency?r=>salesAmount(r)??0:r=>r._qty;
+  const history=modelHistoryData(options.all||salesEnriched(),month,[...filters,...(options.filters||[])],groupKey,measure),{months,buckets}=history;
   const past=[months[3],months[2],months[1]],table=$(bodyId).closest('table');
   const leading=options.hideShare?5:6;
   const labels=historyColumnLabels(entityLabel,month,options.hideShare);
+  if(currency){labels[1]+=' (₱)';labels[2]+=' (₱)';labels[3]='MTD Gap ₱ (Decline Share)';}
   table.classList.add('model-history-table');
   if(table.tHead.querySelectorAll('[data-sort-column]').length!==labels.length)table.tHead.innerHTML='<tr>'+labels.slice(0,leading).map((label,i)=>`<th rowspan="2" scope="col" data-sort-column="${i}">${escapeHtml(label)}</th>`).join('')+'<th colspan="3" scope="colgroup">Monthly Sales</th><th colspan="3" scope="colgroup">Increase Rate</th></tr><tr>'+labels.slice(leading).map((label,i)=>`<th scope="col" data-sort-column="${i+leading}">${escapeHtml(label)}</th>`).join('')+'</tr>';
   else [...table.tHead.querySelectorAll('[data-sort-column]')].forEach((cell,i)=>{const button=cell.querySelector('.table-sort-button');if(button){button.setAttribute('aria-label','Sort by '+labels[i]);button.textContent=labels[i]+({'ascending':' ↑','descending':' ↓'}[cell.getAttribute('aria-sort')]||' ↕');}else cell.textContent=labels[i];});
+  table.tHead.querySelector('[scope=colgroup]').textContent=currency?'Monthly Sales (₱)':'Monthly Sales';
   const models=(options.entities||uniq([...buckets.get(month).sales.keys()])).filter(options.entityFilter||(()=>true));
   if(bodyId==='priceRangeTableBody'){const order=new Map((window.evisPriceRanges?.getRanges()||[]).map((range,index)=>[range.name,index]));models.sort((a,b)=>(order.get(a)??Infinity)-(order.get(b)??Infinity)||a.localeCompare(b));}
-  const current=buckets.get(month),total=options.entities?[...current.sales.values()].reduce((sum,qty)=>sum+qty,0):rows.reduce((sum,r)=>sum+r._qty,0);
+  const current=buckets.get(month),total=options.entities?[...current.sales.values()].reduce((sum,qty)=>sum+qty,0):rows.reduce((sum,r)=>sum+measure(r),0);
   const totalDecline=history.matchedAvailable?historyTotalDecline(models,current.sales,history.matched):null;
   const complete=m=>{const [y,num]=m.split('-').map(Number);return buckets.get(m).latest===new Date(y,num,0).getDate();};
   const monthly=(m,model)=>buckets.get(m).latest?buckets.get(m).sales.get(model)||0:null;
   $(bodyId).innerHTML=models.map(model=>{
     const sales=current.sales.get(model)||0,prior=history.matchedAvailable?history.matched.get(model)||0:null;
-    return `<tr><td>${["dealerTableBody","psSalesReviewBody"].includes(bodyId)?`<button type="button" data-entity-detail="${bodyId}" data-entity-key="${escapeHtml(model)}">${escapeHtml(options.names?.get(model)||model)}</button>`:`<strong>${escapeHtml(options.names?.get(model)||model)}</strong>`}</td><td>${fmt(sales)}</td><td>${prior===null?'—':fmt(prior)}</td>${modelGapCell(current.latest?sales:null,prior,totalDecline)}${options.hideShare?'':`<td>${pct(total?sales/total*100:0)}</td>`}${modelRateCell(current.latest?sales:null,prior)}${past.map(m=>{const value=monthly(m,model);return `<td>${value===null?'—':fmt(value)+(complete(m)?'':' *')}</td>`;}).join('')}${past.map(m=>{const prev=modelMonthOffset(m,-1);return modelRateCell(complete(m)?monthly(m,model):null,complete(prev)?monthly(prev,model):null);}).join('')}</tr>`;
+    return `<tr><td>${["dealerTableBody","psSalesReviewBody"].includes(bodyId)?`<button type="button" data-entity-detail="${bodyId}" data-entity-key="${escapeHtml(model)}">${escapeHtml(options.names?.get(model)||model)}</button>`:`<strong>${escapeHtml(options.names?.get(model)||model)}</strong>`}</td><td data-sort-value="${sales}">${format(sales)}</td><td data-sort-value="${prior??''}">${prior===null?'—':format(prior)}</td>${modelGapCell(current.latest?sales:null,prior,totalDecline,false,currency)}${options.hideShare?'':`<td>${pct(total?sales/total*100:0)}</td>`}${modelRateCell(current.latest?sales:null,prior)}${past.map(m=>{const value=monthly(m,model);return `<td data-sort-value="${value??''}">${value===null?'—':format(value)+(complete(m)?'':' *')}</td>`;}).join('')}${past.map(m=>{const prev=modelMonthOffset(m,-1);return modelRateCell(complete(m)?monthly(m,model):null,complete(prev)?monthly(prev,model):null);}).join('')}</tr>`;
   }).join('')||emptyRow(labels.length);
   // Aggregate displayed entities first; calculate rates from their combined units.
   const aggregate=map=>models.reduce((sum,key)=>sum+(map.get(key)||0),0);
   const currentTotal=aggregate(current.sales),priorTotal=history.matchedAvailable?aggregate(history.matched):null;
   const monthlyTotal=m=>buckets.get(m).latest?aggregate(buckets.get(m).sales):null;
   const footer=table.tFoot||table.createTFoot();footer.dataset.summary='history';
-  footer.innerHTML=`<tr><th scope="row">WVIS</th><td>${fmt(currentTotal)}</td><td>${priorTotal===null?'—':fmt(priorTotal)}</td>${modelGapCell(current.latest?currentTotal:null,priorTotal,totalDecline,true)}${options.hideShare?'':`<td>${pct(total?currentTotal/total*100:0)}</td>`}${modelRateCell(current.latest?currentTotal:null,priorTotal)}${past.map(m=>{const value=monthlyTotal(m);return `<td>${value===null?'—':fmt(value)+(complete(m)?'':' *')}</td>`;}).join('')}${past.map(m=>{const prev=modelMonthOffset(m,-1);return modelRateCell(complete(m)?monthlyTotal(m):null,complete(prev)?monthlyTotal(prev):null);}).join('')}</tr>`;
+  footer.innerHTML=`<tr><th scope="row">WVIS</th><td>${format(currentTotal)}</td><td>${priorTotal===null?'—':format(priorTotal)}</td>${modelGapCell(current.latest?currentTotal:null,priorTotal,totalDecline,true,currency)}${options.hideShare?'':`<td>${pct(total?currentTotal/total*100:0)}</td>`}${modelRateCell(current.latest?currentTotal:null,priorTotal)}${past.map(m=>{const value=monthlyTotal(m);return `<td data-sort-value="${value??''}">${value===null?'—':format(value)+(complete(m)?'':' *')}</td>`;}).join('')}${past.map(m=>{const prev=modelMonthOffset(m,-1);return modelRateCell(complete(m)?monthlyTotal(m):null,complete(prev)?monthlyTotal(prev):null);}).join('')}</tr>`;
   footer.title='Totals for the rows in this table. Increase rates use combined sales.';
   table.closest('article').querySelector('.card-head p').textContent=`Current sales: ${monthName(month)} 1–${history.cutoff||'—'}. Previous period: ${monthName(months[1])} 1–${history.previousEnd||'—'}. ${options.hideShare?'':'Market share uses selected-view units. '}IR = (new − previous) / previous. Blue line: ±1%; green: increase; red: decrease. New = zero prior sales. Past months show all uploaded sales; * means data ends before month-end, and incomplete/missing comparisons show —. All filters apply to both periods.`;
 }
@@ -77,17 +81,22 @@ const renderBeforeDealers=render;
 const top50DealerNames=new Set(['AEROFONE','JM Group','Cellboy','GALLEON ENTERPRISES','Tonnys Cellshop','Cellcom Word Communications','PLAY TELECOM','EMCOR','D Cell City','Ji Telecom','MemoXpress','TFT DIGITAL HUB CO.','Shanyi Cellphone and Accessories - WVIS','BSD','OCTAGON'].map(name=>name.trim().replace(/\s+/g,' ').toLowerCase()));
 function isTop50Dealer(name){return top50DealerNames.has(String(name||'').trim().replace(/\s+/g,' ').toLowerCase());}
 let top50DealersOnly=false;try{top50DealersOnly=localStorage.getItem('wvis.top50DealersOnly')==='true';}catch{}
-const top50Controls=document.createElement('div');top50Controls.className='top50-dealer-controls';top50Controls.innerHTML='<button type="button" class="secondary-btn" id="top50DealersToggle" aria-pressed="false" aria-controls="dealerTableBody">Top 50 Dealers only</button><span id="top50DealersStatus" role="status"></span>';
+let dealerSalesMeasure='qty';try{if(localStorage.getItem('wvis.dealerSalesMeasure')==='amount')dealerSalesMeasure='amount';}catch{}
+const top50Controls=document.createElement('div');top50Controls.className='top50-dealer-controls';top50Controls.innerHTML='<button type="button" class="secondary-btn" id="top50DealersToggle" aria-pressed="false" aria-controls="dealerTableBody">Top 50 Dealers only</button><div role="group" aria-label="Dealer sales measure"><button type="button" class="secondary-btn" data-dealer-measure="qty" aria-pressed="true">Sales QTY</button> <button type="button" class="secondary-btn" data-dealer-measure="amount" aria-pressed="false">Sales Amount (₱)</button></div><span id="top50DealersStatus" role="status"></span>';
 dealerSection.querySelector('.table-wrap').before(top50Controls);
 function renderDealerPerformance(){
  const rows=top50DealersOnly?state.filteredSales.filter(r=>isTop50Dealer(r._customer)):state.filteredSales;
- renderModelHistory(rows,'dealerTableBody','_customer','Dealer',top50DealersOnly?{entityFilter:isTop50Dealer}:{});
+ renderModelHistory(rows,'dealerTableBody','_customer','Dealer',{measure:dealerSalesMeasure,...(top50DealersOnly?{entityFilter:isTop50Dealer}:{})});
+ document.querySelectorAll('[data-dealer-measure]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.dealerMeasure===dealerSalesMeasure)));
  $('top50DealersToggle').setAttribute('aria-pressed',String(top50DealersOnly));
+ const missingAmounts=dealerSalesMeasure==='amount'?rows.filter(r=>salesAmount(r)===null).length:0;
  $('top50DealersStatus').textContent=top50DealersOnly?'Showing your Top 50 group · 15 listed dealers · universal filters still apply.':'Showing all dealers matching the universal filters.';
+ if(missingAmounts)$('top50DealersStatus').textContent+=' Sales Amount is missing in '+missingAmounts+' rows; totals exclude those amounts.';
 }
 $('top50DealersToggle').addEventListener('click',()=>{top50DealersOnly=!top50DealersOnly;try{localStorage.setItem('wvis.top50DealersOnly',String(top50DealersOnly));}catch{}renderDealerPerformance();});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-dealer-measure]');if(!b)return;dealerSalesMeasure=b.dataset.dealerMeasure;try{localStorage.setItem('wvis.dealerSalesMeasure',dealerSalesMeasure);}catch{}renderDealerPerformance();});
 render=()=>{renderBeforeDealers();renderDealerPerformance();};
-const top50Style=document.createElement('style');top50Style.textContent='.top50-dealer-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}.top50-dealer-controls span{font-size:12px;color:#747a85}#top50DealersToggle[aria-pressed="true"]{background:#fff2bc;border-color:#d4ad20;color:#111214}';document.head.append(top50Style);
+const top50Style=document.createElement('style');top50Style.textContent='.top50-dealer-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}.top50-dealer-controls span{font-size:12px;color:#747a85}#top50DealersToggle[aria-pressed="true"],[data-dealer-measure][aria-pressed="true"]{background:#fff2bc;border-color:#d4ad20;color:#111214}';document.head.append(top50Style);
 const dealerStyle=document.createElement('style');
 dealerStyle.textContent='#dealerTableBody .model-rate{white-space:nowrap;font-weight:600}#dealerTableBody .up{color:#238344}#dealerTableBody .down{color:#c63c3c}#dealerTableBody .steady{color:#286bc1}#dealerTableBody td{font-variant-numeric:tabular-nums}';
 document.head.appendChild(dealerStyle);
