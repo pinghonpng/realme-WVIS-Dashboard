@@ -1,0 +1,16 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const output = path.join(__dirname, '.vercel/output');
+fs.rmSync(output, { recursive: true, force: true });
+const fn = path.join(output, 'functions/api/gateway.func');
+const stat = path.join(output, 'static');
+fs.mkdirSync(path.join(fn, 'dashboard'), { recursive: true });
+fs.mkdirSync(stat, { recursive: true });
+const assets = ['index.html','app.js','styles.css','scoring.js','performance.js','model-history.js','price-ranges.js','active-promoters.js','productivity.js','push-models.js','asm-incentives.js','overview-views.js','zero-sellout.js','fullscreen.js','sorting.js','shared-data.js','config.js','accounts.js'];
+for (const name of assets) fs.copyFileSync(path.join(__dirname, name), path.join(fn, 'dashboard', name));
+for (const name of ['gateway.cjs', 'security.cjs']) fs.copyFileSync(path.join(__dirname, name), path.join(fn, name));
+fs.copyFileSync(path.join(__dirname, 'login.html'), path.join(stat, 'index.html'));
+fs.copyFileSync(path.join(__dirname, 'login.js'), path.join(stat, 'login.js'));
+fs.writeFileSync(path.join(fn, '.vc-config.json'), JSON.stringify({ runtime: 'nodejs22.x', handler: 'gateway.cjs', launcherType: 'Nodejs', shouldAddHelpers: true, maxDuration: 60 }));
+fs.writeFileSync(path.join(output, 'config.json'), JSON.stringify({ version: 3, routes: [{ src: '/(.*)', headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }, continue: true }, { handle: 'filesystem' }] }));
+console.log('Built login-only static output and authenticated dashboard function.');

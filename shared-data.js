@@ -2,14 +2,14 @@
 (()=>{
 const config={url:'https://fuvlhwoauzvgrbakihsj.supabase.co',publishableKey:'sb_publishable_Il7KA51StVzo-C3i0to6-Q_0iJY4vXt'};
 const origin=new URL(config.url).origin,slots=['fixed','current','scores'];
-let manifest=null,session=null,admin=false,busy=false,loading=false,hireDatesMissing=false;
+let manifest=null,session=null,admin=window.dashboardAccount.role==='admin',busy=false,loading=false,hireDatesMissing=false;
 const cache=new Map();
 const salesSheet={id:'1AaSTsNKEO0olJ1UxCwtSLpktkSMKvfiDERlBLhWFDkc',tabs:{fixed:'PREVIOUS MONTHS',current:'CURRENT MONTH'}};
 let sheetSnapshot=null,sheetFailure='',sheetChecked=null,installedVersion='';
 const sheetCacheKey='googleSales:'+salesSheet.id;
 const say=message=>{$('sharedStatus').textContent=message;};
 async function request(path,options={}){
- const response=await fetch(origin+path,{...options,cache:'no-store',headers:{apikey:config.publishableKey,...(session?{Authorization:'Bearer '+session.access_token}:{}),...options.headers}});
+ const response=await fetch('/api/gateway?op=shared&path='+encodeURIComponent(path),{...options,cache:'no-store',headers:{apikey:config.publishableKey,...(session?{Authorization:'Bearer '+session.access_token}:{}),...options.headers}});
  if(!response.ok){let error;try{error=await response.json()}catch{};throw new Error(error?.message||error?.error_description||'Shared data request failed ('+response.status+').');}
  return response.status===204?null:response.json();
 }
@@ -41,7 +41,7 @@ async function digest(buffer){return [...new Uint8Array(await crypto.subtle.dige
 async function download(meta){
  if(!meta)return null;if(cache.has(meta.path))return cache.get(meta.path);
  if(!/^[0-9a-f-]{36}\.json\.gz$/.test(meta.path))throw new Error('Invalid shared file path.');
- const response=await fetch(origin+'/storage/v1/object/public/evis-shared/'+meta.path);if(!response.ok)throw new Error('Could not download the published file.');
+ const response=await fetch('/api/gateway?op=file&path='+encodeURIComponent(meta.path));if(!response.ok)throw new Error('Could not download the published file.');
  const compressed=await response.arrayBuffer();if(await digest(compressed)!==meta.sha256)throw new Error('Shared file verification failed.');
  const text=await new Response(new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
  const file=JSON.parse(text);cache.set(meta.path,file);return file;
@@ -49,7 +49,7 @@ async function download(meta){
 function controls(){
  window.evisRoster?.setAdmin(admin&&!busy);window.evisPriceRanges?.setAdmin(admin&&!busy);
  ['fixedFile','currentFile','scoreFile','clearFixedBtn','clearCurrentBtn'].forEach(id=>{if($(id))$(id).disabled=!admin||busy;});
- $('sharedLogin').hidden=admin;$('sharedLogout').hidden=!admin;$('sharedAdmin').textContent=admin?'Administrator: lucasngrealme@gmail.com':'Viewer · shared data';
+ $('sharedLogin').hidden=true;$('sharedLogout').hidden=true;$('sharedAdmin').textContent=admin?'Administrator: lucasngrealme@gmail.com':'Viewer · shared data';
  ['fixedFile','currentFile','clearFixedBtn','clearCurrentBtn'].forEach(id=>{if($(id))$(id).disabled=true;});
 }
 function installFiles(files,next){
@@ -85,8 +85,8 @@ function validateGooglePeriods(files){
 async function readGoogleSales(){
  const entries=await Promise.all(Object.entries(salesSheet.tabs).map(async([slot,tab])=>{
   const url='https://docs.google.com/spreadsheets/d/'+salesSheet.id+'/gviz/tq?tqx=out:csv&headers=1&tq=select%20*&sheet='+encodeURIComponent(tab);
-  const response=await fetch(url,{cache:'no-store',signal:AbortSignal.timeout(45000)});
-  if(!response.ok)throw new Error(tab+': could not read the public sheet ('+response.status+').');
+  const response=await fetch('/api/gateway?op=sheet&slot='+slot,{cache:'no-store',signal:AbortSignal.timeout(45000)});
+  if(!response.ok)throw new Error(tab+': could not read the sales sheet ('+response.status+').');
   const text=await response.text(),hash=await digest(new TextEncoder().encode(text).buffer);return [slot,{hash,file:sheetSnapshot?.hashes?.[slot]===hash?sheetSnapshot.files[slot]:googleSalesFile(text,tab)}];
  }));
  const sources=Object.fromEntries(entries),files={fixed:sources.fixed.file,current:sources.current.file};validateGooglePeriods(files);
@@ -139,20 +139,11 @@ async function publish(changes){
  }catch(error){say('Publish failed. The previous shared version is unchanged. '+error.message);throw error;}
  finally{busy=false;controls();}
 }
-async function login(event){
- event.preventDefault();const password=$('sharedPassword').value;$('sharedPassword').value='';
- try{
-  session=await request('/auth/v1/token?grant_type=password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'lucasngrealme@gmail.com',password})});
-  admin=await request('/rest/v1/rpc/evis_is_admin',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-  if(!admin){session=null;throw new Error('This account is not configured as a dashboard administrator.');}
-  say('Signed in. Uploads now publish to all viewers.');controls();
- }catch(error){admin=false;session=null;controls();say(error.message);}
-}
 const panel=document.createElement('article');panel.className='card table-card';
-panel.innerHTML='<h2>Shared Dashboard Data</h2><p id="sharedVersion">Connecting to shared data…</p><p id="sharedStatus" role="status"></p><p id="sharedAdmin"></p><form id="sharedLogin"><label for="sharedPassword">Administrator password · lucasngrealme@gmail.com</label><input id="sharedPassword" type="password" autocomplete="current-password" required><button class="secondary-btn" type="submit">Administrator sign-in</button></form><button class="secondary-btn" id="sharedLogout" hidden>Sign out</button><p class="score-note">Sales and model-score updates are shared. Viewers need no sign-in. Only administrators can upload or remove shared files. PS target edits apply only to your own browser.</p>';
+panel.innerHTML='<h2>Shared Dashboard Data</h2><p id="sharedVersion">Connecting to shared data…</p><p id="sharedStatus" role="status"></p><p id="sharedAdmin"></p><form id="sharedLogin"><label for="sharedPassword">Administrator password · lucasngrealme@gmail.com</label><input id="sharedPassword" type="password" autocomplete="current-password" required><button class="secondary-btn" type="submit">Administrator sign-in</button></form><button class="secondary-btn" id="sharedLogout" hidden>Sign out</button><p class="score-note">Sales and model-score updates are shared. Only approved accounts can access data. Only administrators can upload or remove shared files. PS target edits apply only to your own browser.</p>';
 $('dataSection').prepend(panel);
 const sourceStyle=document.createElement('style');sourceStyle.textContent='#dataSection .drop-zone[hidden]{display:none!important}#googleSalesStatus{margin-top:12px}.sales-sheet-controls{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-top:16px}.sales-sheet-controls label{display:flex;flex-direction:column;gap:8px;font-size:13px}.sales-sheet-url{flex:1 1 100%}.sales-sheet-controls input{padding:12px;border:1px solid #d8dce2;border-radius:10px;font:inherit;background:#f8f9fb;min-width:0;width:100%}.sales-sheet-controls .secondary-btn{padding:12px;text-decoration:none}.sales-sheet-controls .sales-sheet-tab{flex:1 1 180px}.sales-sheet-controls{align-items:start}.sales-sheet-controls>.secondary-btn{margin-top:24px}.sales-sheet-tab .file-meta{min-height:0;border:0;padding:0;margin:8px 0 0;background:transparent}.sales-sheet-tab .file-name{display:none}.sales-sheet-tab .file-stats{font-size:11px;gap:8px 14px}#dataSection .upload-grid[hidden]{display:none!important}';document.head.append(sourceStyle);
-const salesPanel=document.createElement('article');salesPanel.className='card table-card';salesPanel.innerHTML='<h2>Sales · Google Sheet</h2><div class="sales-sheet-controls"><label class="sales-sheet-url">Public Google Sheet link<input id="salesSheetUrl" aria-label="Sales Google Sheet URL" type="url" readonly value="https://docs.google.com/spreadsheets/d/'+salesSheet.id+'/edit"></label><div class="sales-sheet-tab" id="historicalSheetDetails"><label>Historical tab<input aria-label="Historical sales sheet tab" readonly value="PREVIOUS MONTHS"></label></div><div class="sales-sheet-tab" id="currentSheetDetails"><label>Current tab<input aria-label="Current sales sheet tab" readonly value="CURRENT MONTH"></label></div><a class="secondary-btn" href="https://docs.google.com/spreadsheets/d/'+salesSheet.id+'/edit" target="_blank" rel="noopener">Open sheet</a><button id="salesSheetCheck" class="secondary-btn">Check now</button></div><div id="googleSalesStatus" role="status">Connecting to sales spreadsheet…</div>';$('dataSection').prepend(salesPanel);$('salesSheetCheck').addEventListener('click',sync);
+const salesPanel=document.createElement('article');salesPanel.className='card table-card';salesPanel.innerHTML='<h2>Sales · Google Sheet</h2><div class="sales-sheet-controls"><label class="sales-sheet-url">Sales Google Sheet link<input id="salesSheetUrl" aria-label="Sales Google Sheet URL" type="url" readonly value="https://docs.google.com/spreadsheets/d/'+salesSheet.id+'/edit"></label><div class="sales-sheet-tab" id="historicalSheetDetails"><label>Historical tab<input aria-label="Historical sales sheet tab" readonly value="PREVIOUS MONTHS"></label></div><div class="sales-sheet-tab" id="currentSheetDetails"><label>Current tab<input aria-label="Current sales sheet tab" readonly value="CURRENT MONTH"></label></div><a class="secondary-btn" href="https://docs.google.com/spreadsheets/d/'+salesSheet.id+'/edit" target="_blank" rel="noopener">Open sheet</a><button id="salesSheetCheck" class="secondary-btn">Check now</button></div><div id="googleSalesStatus" role="status">Connecting to sales spreadsheet…</div>';$('dataSection').prepend(salesPanel);$('salesSheetCheck').addEventListener('click',sync);
 for(const [slot,tab] of Object.entries(salesSheet.tabs)){const input=$(slot==='fixed'?'fixedFile':'currentFile');input.closest('.drop-zone').hidden=true;$(slot==='fixed'?'clearFixedBtn':'clearCurrentBtn').hidden=true;input.closest('article').querySelector('h2').textContent=tab;}
 $('historicalSheetDetails').append($('fixedMeta'));$('currentSheetDetails').append($('currentMeta'));document.querySelector('#dataSection .upload-grid').hidden=true;
 document.querySelector('#dataSection .validation-card h2').textContent='Sales Validation';document.querySelector('#dataSection .source-intro h2').textContent='Linked sales spreadsheet';document.querySelector('#dataSection .source-intro p').textContent='Sales load automatically from PREVIOUS MONTHS and CURRENT MONTH.';
@@ -160,7 +151,7 @@ document.querySelector('#dataSection .validation-card h2').textContent='Sales Va
 document.querySelectorAll('#dataSection .source-summary strong').forEach(el=>{if(el.textContent==='Browser')el.textContent='Shared cloud';});
 document.querySelectorAll('#dataSection .score-note').forEach(el=>{if(el.textContent.startsWith('Saved in this browser.'))el.textContent=el.textContent.replace('Saved in this browser.','Published for all viewers.');});
 const badge=document.createElement('p');badge.id='sharedBadge';badge.className='score-note';badge.textContent='Shared dataset · see Data Sources for version and update time';document.querySelector('.topbar').after(badge);
-$('sharedLogin').addEventListener('submit',login);
+
 $('sharedLogout').addEventListener('click',async()=>{try{await request('/auth/v1/logout',{method:'POST'})}catch{}session=null;admin=false;controls();say('Signed out. Viewing shared data.');});
 handleUpload=async()=>{toast('Edit sales in the linked Google Sheet.',true);};
 uploadScores=async(file)=>{if(!file)return;try{await publish({scores:canonicalScores(await parseSalesFile(file))});$('scoreError').textContent='';}catch(error){$('scoreError').textContent=error.message;}finally{$('scoreFile').value='';}};

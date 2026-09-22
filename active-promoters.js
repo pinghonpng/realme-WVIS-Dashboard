@@ -57,10 +57,10 @@ function activePerformanceRows(rows,roster,filters,stores){
  async function check(){
   if(checking||!config)return;checking=true;const epoch=generation;
   try{
-   const id=sheetIdFromUrl(config.url);if(!id)throw new Error('Enter a valid public Google Sheets link.');
-   const response=await fetch(csvUrl(id,config.tab)+'&headers=1&tq=select%20*',{cache:'no-store',signal:AbortSignal.timeout(25000)});
-   if(!response.ok)throw new Error('Google Sheet could not be read. Check public sharing and the tab name.');
-   const text=await response.text();if(/^\s*</.test(text))throw new Error('Google returned a page instead of data. Check public sharing.');
+   const id=sheetIdFromUrl(config.url);if(!id)throw new Error('Enter a valid Google Sheets link.');
+   const response=await fetch('/api/gateway?op=sheet&slot=hr',{cache:'no-store',signal:AbortSignal.timeout(25000)});
+   if(!response.ok)throw new Error('Google Sheet could not be read. Check server sheet access and the tab name.');
+   const text=await response.text();if(/^\s*</.test(text))throw new Error('Google returned a page instead of data. Check server sheet access.');
    const next=rosterParse(parseCSV(text));if(epoch!==generation)return;
    roster=next;lastChecked=new Date();$('rosterStatus').textContent=next.count+' ACTIVE promoters · Last checked '+lastChecked.toLocaleString();renderPromoters(state.filteredSales);decorate();window.evisProductivity?.render();window.evisPsSalesReview?.render();window.evisPushModels?.render();window.evisOverviewTargets?.render();window.evisAsmIncentives?.render();
   }catch(error){if(epoch===generation)$('rosterStatus').textContent=(roster?'Using last verified HR list. ':'HR status unavailable; promoters are not marked resigned. ')+error.message;}
