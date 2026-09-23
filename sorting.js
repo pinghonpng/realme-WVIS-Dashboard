@@ -152,3 +152,23 @@ function coverInactiveCustomerTypes(){
  });
 }
 const inactiveCustomerStyle=document.createElement('style');inactiveCustomerStyle.textContent='table tbody tr.inactive-customer-cover,table tbody tr.inactive-customer-cover>*,table tbody tr.inactive-customer-cover>* *{background:#000!important;color:#000!important;border-color:#000!important;text-shadow:none!important}';document.head.appendChild(inactiveCustomerStyle);
+
+// Highlight the fixed Top 5 dealer names wherever tables are rendered, including dialogs.
+function highlightTopFiveDealerCells(){
+ const names=new Set(['RULLS CELLPHONES','Cellcom Word Communications','GALLEON ENTERPRISES','PLAY TELECOM','D Cell City'].map(name=>name.toLowerCase()));
+ document.querySelectorAll('table tbody td,table tbody th').forEach(cell=>{
+  const name=cell.textContent.trim().replace(/\s+/g,' ').toLowerCase();
+  cell.classList.toggle('top-five-dealer-cell',names.has(name));
+ });
+}
+const topFiveDealerStyle=document.createElement('style');
+topFiveDealerStyle.textContent='html body table tbody tr:not(.inactive-customer-cover)>.top-five-dealer-cell{background:#fff2cc!important;color:#29230c!important}html body table tbody tr:not(.inactive-customer-cover)>.top-five-dealer-cell :is(a,button,span,strong){color:#29230c!important}';
+document.head.appendChild(topFiveDealerStyle);
+let topFiveHighlightPending=false;
+const topFiveDealerObserver=new MutationObserver(()=>{
+ if(topFiveHighlightPending)return;
+ topFiveHighlightPending=true;
+ requestAnimationFrame(()=>{topFiveHighlightPending=false;highlightTopFiveDealerCells();});
+});
+topFiveDealerObserver.observe(document.body,{childList:true,subtree:true,characterData:true});
+highlightTopFiveDealerCells();
