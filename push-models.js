@@ -118,7 +118,7 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
 
 // Color only trend headers; numeric cells retain the standard theme.
 (()=>{const style=document.createElement('style');style.textContent=`
-table.push-performance-table.push-performance-table th,table.push-performance-table.push-performance-table td{border:1px solid #8993a3}
+table.push-performance-table.push-performance-table th,table.push-performance-table.push-performance-table td{border:1px solid #8993a3!important}
 table.push-performance-table.push-performance-table[data-push-table-mode=sales] thead :is(th[data-sort-column="5"],th[data-sort-column="6"],th[data-sort-column="7"],th[data-sort-column="8"]),table.push-performance-table.push-performance-table[data-push-table-mode=sales] thead tr:first-child th:nth-child(6){background:#dceaff!important}
 table.push-performance-table.push-performance-table[data-push-table-mode=sales] thead :is(th[data-sort-column="9"],th[data-sort-column="10"],th[data-sort-column="11"]),table.push-performance-table.push-performance-table[data-push-table-mode=sales] thead tr:first-child th:nth-child(7){background:#e9dff8!important}
 html[data-theme=night] table.push-performance-table.push-performance-table th,html[data-theme=night] table.push-performance-table.push-performance-table td{border-color:#718096!important}
