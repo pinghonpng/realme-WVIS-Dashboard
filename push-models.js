@@ -4,7 +4,7 @@ const PUSH_TERRITORIES=[
  ['EVIS','EVIS.ORMOC&OUTBASE',39,49],['EVIS','EVIS.SAMAR',74,84],['EVIS','EVIS.SOUTH LEYTE',18,28],['EVIS','EVIS.TACLOBAN',69,79],
  ['PANAY','PANAY.PANAY 1',50,60],['PANAY','PANAY.PANAY 2',50,60],['PANAY','PANAY.PANAY 3',62,72],['PANAY','PANAY.PANAY 4',38,48]
 ];
-const PUSH_CAMPAIGNS=[{series:'16T SERIES',title:'16T Series',start:4,end:15,total:600,column:2},{series:'C100 SERIES',title:'C100 Series',start:1,end:30,total:720,column:3}];
+const PUSH_CAMPAIGNS=[{series:'16T SERIES',title:'16T Series',start:4,end:15,total:1191,column:2},{series:'C100 SERIES',title:'C100 Series',start:1,end:30,total:720,column:3}];
 function pushWholeTargets(total,weights){
  const sum=[...weights.values()].reduce((a,b)=>a+b,0);if(!(sum>0))return null;
  const parts=[...weights].map(([key,weight])=>{const exact=total*weight/sum;return {key,units:Math.floor(exact),remainder:exact-Math.floor(exact)};});
@@ -33,8 +33,10 @@ function pushReport(all,roster,rangeName,view,filters,campaign){
  let targets=null;
  if(filters.month==='2026-09'&&campaign.total!==null){
   if(view==='area'||view==='subregion'){
-   targets=new Map();PUSH_TERRITORIES.filter(t=>passes(t[0],filters.area)&&passes(t[1],filters.asm)).forEach(t=>{const k=t[view==='area'?0:1];targets.set(k,(targets.get(k)||0)+t[campaign.column]);});
-  }else if(allocationReady)targets=pushWholeTargets(campaign.total,weights);
+   const territoryTargets=new Map();
+   for(const area of ['EVIS','NEGROS','PANAY']){const ts=PUSH_TERRITORIES.filter(t=>t[0]===area);const allocated=campaign.column===2?pushWholeTargets(397,new Map(ts.map(t=>[t[1],t[2]]))):new Map(ts.map(t=>[t[1],t[3]]));allocated.forEach((v,k)=>territoryTargets.set(k,v));}
+   targets=new Map();PUSH_TERRITORIES.filter(t=>passes(t[0],filters.area)&&passes(t[1],filters.asm)).forEach(t=>{const k=t[view==='area'?0:1];targets.set(k,(targets.get(k)||0)+territoryTargets.get(t[1]));});
+  }else if(allocationReady)targets=campaign.column===2?pushWholeTargets(1191,pushWholeTargets(600,weights)):pushWholeTargets(campaign.total,weights);
  }
  const territoryMatch=r=>passes(r._area,filters.area)&&passes(r._asm,filters.asm)&&passes(r._customer,filters.customer)&&passes(r._channel,filters.channel);
  const productMatch=r=>passes(r._model,filters.model)&&passes(r._series,filters.series)&&passes(r._priceRange,filters.priceRange);
@@ -48,13 +50,40 @@ function pushReport(all,roster,rangeName,view,filters,campaign){
  const total={label:'WVIS',target:groups.length&&groups.every(g=>g.target!==null)?groups.reduce((s,g)=>s+g.target,0):null,sales:groups.length&&period.length?groups.reduce((s,g)=>s+g.sales,0):null};
  return {groups,total,allocationReady,latest:period.reduce((n,r)=>Math.max(n,r._date.getDate()),0)};
 }
+function pushTrends(all,filters,campaign,key){
+ const day=d=>Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000;
+ const monthRows=all.filter(r=>modelMonthKey(r._date)===filters.month),cutoff=monthRows.reduce((m,r)=>Math.max(m,day(r._date)),-Infinity);
+ const weeks=Array.from({length:5},(_,i)=>({start:cutoff-i*7-6,end:cutoff-i*7}));
+ const months=[-3,-2,-1].map(i=>modelMonthOffset(filters.month,i)),baseline=modelMonthOffset(filters.month,-4),coverage=new Set(all.map(r=>day(r._date)));
+ const covered=(start,end)=>{if(!Number.isFinite(start))return false;for(let d=start;d<=end;d++)if(!coverage.has(d))return false;return true;};
+ weeks.forEach(w=>w.available=covered(w.start,w.end));
+ const complete=m=>{const [y,n]=m.split('-').map(Number);return covered(Date.UTC(y,n-1,1)/86400000,Date.UTC(y,n,0)/86400000);};
+ const buckets=new Map(),blank=()=>({weeks:[0,0,0,0,0],months:{}});
+ for(const r of all){if(r._series!==campaign.series||!['area','asm','customer','channel','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))continue;
+ const label=r[key]||'Unassigned';if(!buckets.has(label))buckets.set(label,blank());const g=buckets.get(label),d=day(r._date),m=modelMonthKey(r._date);
+ weeks.forEach((w,i)=>{if(d>=w.start&&d<=w.end)g.weeks[i]+=r._qty;});if(months.includes(m)||m===baseline)g.months[m]=(g.months[m]||0)+r._qty;}
+ const sum=labels=>{const g=blank();labels.forEach(label=>{const v=buckets.get(label);if(v){v.weeks.forEach((q,i)=>g.weeks[i]+=q);Object.entries(v.months).forEach(([m,q])=>g.months[m]=(g.months[m]||0)+q);}});return g;};
+ return {weeks,months,complete,sum};
+}
+function pushDistribution(all,roster,filters,campaign,view){
+ if(!roster)return {groups:[],total:{label:'WVIS',headcount:0,counts:[0,0,0,0]}};
+ const key={area:'_area',subregion:'_asm',dealer:'_customer',channel:'_channel'}[view];
+ const members=pushLatestPromoters(all.filter(r=>modelMonthKey(r._date)<=filters.month),roster).filter(r=>['area','asm','customer','channel'].every(k=>passes(r['_'+k],filters[k])));
+ const mapped=psSalesReviewData(all,roster,{area:'ALL',asm:'ALL',customer:'ALL',channel:'ALL'},storeMap()).all,sales=new Map();
+ mapped.forEach(r=>{if(modelMonthKey(r._date)!==filters.month||r._series!==campaign.series||!['area','asm','customer','channel','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))return;sales.set(r._reviewPs,(sales.get(r._reviewPs)||0)+r._qty);});
+ const groups=new Map();if(passes(campaign.series,filters.series)&&(filters.model==='ALL'||all.some(r=>r._model===filters.model&&r._series===campaign.series)))members.forEach(m=>{const label=m[key]||'Unassigned';if(!groups.has(label))groups.set(label,{label,headcount:0,counts:[0,0,0,0]});const g=groups.get(label),q=Math.max(0,sales.get(m._ps)||0);g.headcount++;g.counts[Math.min(3,Math.floor(q))]++;});
+ const list=[...groups.values()].sort((a,b)=>a.label.localeCompare(b.label)),total={label:'WVIS',headcount:0,counts:[0,0,0,0]};list.forEach(g=>{total.headcount+=g.headcount;g.counts.forEach((q,i)=>total.counts[i]+=q);});return {groups:list,total};
+}
 function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!==null)?groups.reduce((sum,g)=>sum+Math.max(0,g.target-g.sales),0):null;}
 (()=>{
  const nav=document.createElement('button');nav.className='nav-item';nav.dataset.section='pushModels';nav.textContent='Push Model Performance';document.querySelector('.nav-item[data-section="dealers"]').before(nav);
  const section=document.createElement('section');section.id='pushModelsSection';section.className='dashboard-section';
- section.innerHTML='<div class="card push-controls"><label for="pushView">View by</label><select id="pushView"><option value="area">Area</option><option value="subregion">Subregion</option><option value="dealer">Dealer</option><option value="channel">Customer Type</option></select><p>September 2026 targets: 16T · September 4–15; C100 · September 1–30. C100i sales are excluded.</p><p>Dealer and Customer Type targets: 50% of June–August unit-sales share in “more Php 13000” + 50% of current ACTIVE promoter headcount share. Each promoter counts once under their latest recorded dealer/customer type; without sales, HR dealer is used and customer type is Unassigned. Whole-unit allocations preserve each series total.</p><p>All universal filters apply to sales and displayed groups. Allocated targets stay fixed when filters narrow the view; they are not prorated for a model, price range, dealer, or customer type selection. Area targets combine the selected subregions. Gap is remaining units to target.</p><p id="pushNotice" role="status"></p></div>'+PUSH_CAMPAIGNS.map((c,i)=>'<article class="card table-card"><div class="card-head"><div><h2>'+c.title+'</h2><p id="pushPeriod'+i+'"></p></div></div><div class="table-wrap"><table class="model-history-table" aria-label="'+c.title+' push performance"><thead><tr><th>Area</th><th>Target</th><th>Sales</th><th>Achievement %</th><th>Gap (Shortfall Share)</th></tr></thead><tbody id="pushBody'+i+'"></tbody><tfoot id="pushTotal'+i+'"></tfoot></table></div></article>').join('');
+ section.innerHTML='<div class="card push-controls"><div role="group" aria-label="Push performance mode"><button type="button" class="secondary-btn" data-push-mode="sales" aria-pressed="true">Sales Performance</button> <button type="button" class="secondary-btn" data-push-mode="distribution" aria-pressed="false">PS Distribution</button></div><label for="pushView">View by</label><select id="pushView"><option value="area">Area</option><option value="subregion">Subregion</option><option value="dealer">Dealer</option><option value="channel">Customer Type</option></select><p>September 2026 targets: 16T · September 4–15; C100 · September 1–30. C100i sales are excluded.</p><p>Dealer and Customer Type targets: 50% of June–August unit-sales share in “more Php 13000” + 50% of current ACTIVE promoter headcount share. Each promoter counts once under their latest recorded dealer/customer type; without sales, HR dealer is used and customer type is Unassigned. Whole-unit allocations preserve each series total.</p><p>All universal filters apply to sales and displayed groups. Allocated targets stay fixed when filters narrow the view; they are not prorated for a model, price range, dealer, or customer type selection. Area targets combine the selected subregions. Gap is remaining units to target.</p><p id="pushNotice" role="status"></p></div>'+PUSH_CAMPAIGNS.map((c,i)=>'<article class="card table-card"><div class="card-head"><div><h2>'+c.title+'</h2><p id="pushPeriod'+i+'"></p></div></div><div class="table-wrap"><table class="model-history-table" aria-label="'+c.title+' push performance"><thead><tr><th>Area</th><th>Target</th><th>Sales</th><th>Achievement %</th><th>Gap (Shortfall Share)</th></tr></thead><tbody id="pushBody'+i+'"></tbody><tfoot id="pushTotal'+i+'"></tfoot></table></div></article>').join('');
  $('dealersSection').before(section);
- const style=document.createElement('style');style.textContent='.push-controls{padding:20px;margin-bottom:18px}.push-controls select{margin-left:12px;padding:8px;border:1px solid #d8dce2;border-radius:6px;background:white;font:inherit}.push-controls p{font-size:12px;color:#69717e;line-height:1.5}#pushModelsSection .table-card{margin-bottom:18px}#pushModelsSection th,#pushModelsSection td{border:1px solid #d8dce2;text-align:center}';document.head.append(style);
+ const style=document.createElement('style');style.textContent='.push-controls [role=group]{margin-bottom:12px}[data-push-mode][aria-pressed="true"]{background:#fff2bc;border-color:#d4ad20;color:#111}.push-controls{padding:20px;margin-bottom:18px}.push-controls select{margin-left:12px;padding:8px;border:1px solid #d8dce2;border-radius:6px;background:white;font:inherit}.push-controls p{font-size:12px;color:#69717e;line-height:1.5}#pushModelsSection .table-card{margin-bottom:18px}#pushModelsSection th,#pushModelsSection td{border:1px solid #d8dce2;text-align:center}';document.head.append(style);
+ let mode='sales';
+ const date=d=>Number.isFinite(d)?new Date(d*86400000).toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'}):'—';
+ const trendCell=(q,p)=>{const rate=modelRate(q,p),symbol={up:'▲',down:'▼',steady:'━',missing:''}[rate.kind];return '<td data-sort-value="'+(q??'')+'">'+(q===null?'—':fmt(q))+' <span class="model-rate '+rate.kind+'">('+symbol+' '+rate.text+')</span></td>';};
  function renderPushModels(){
   const all=salesEnriched(),roster=window.evisRoster?.getRoster(),range=window.evisPriceRanges?.getRanges().find(r=>normalize(r.name).replace(/[\s,]+/g,'').toLowerCase()==='morephp13000');
   const view=$('pushView').value,filters=Object.fromEntries(['month','area','asm','customer','channel','model','series','priceRange'].map(k=>[k,selected(k+'Filter')]));
@@ -64,13 +93,23 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
    const report=pushReport(all,roster,range?.name,view,filters,campaign);
    if(i===0&&!report.allocationReady&&['dealer','channel'].includes(view))warnings.push('Allocations need June, July and August data, positive premium sales, and active headcount.');
    $('pushPeriod'+i).textContent=monthName(filters.month)+' · '+campaign.start+'–'+campaign.end+' sales window. '+(report.latest?'Uploaded sales through day '+report.latest+'.':'No uploaded sales in this window.')+(campaign.total===null?' Target not supplied.':'');
-   const header=$('pushBody'+i).closest('table').tHead.rows[0].cells[0],button=header.querySelector('button'),label={area:'Area',subregion:'Subregion',dealer:'Dealer',channel:'Customer Type'}[view];
-   if(button){button.setAttribute('aria-label','Sort by '+label);button.textContent=label+({'ascending':' ↑','descending':' ↓'}[header.getAttribute('aria-sort')]||' ↕');}else header.textContent=label;
+   const table=$('pushBody'+i).closest('table'),label={area:'Area',subregion:'Subregion',dealer:'Dealer',channel:'Customer Type'}[view],key={area:'_area',subregion:'_asm',dealer:'_customer',channel:'_channel'}[view];
+   if(mode==='distribution'){
+    const dist=pushDistribution(all,roster,filters,campaign,view);
+    table.tHead.innerHTML='<tr>'+[label,'Active PS','0 Units','1 Unit','2 Units','3+ Units'].map(x=>'<th>'+x+'</th>').join('')+'</tr>';
+    const distributionRow=g=>'<tr><td>'+escapeHtml(g.label)+'</td><td>'+fmt(g.headcount)+'</td>'+g.counts.map(q=>'<td data-sort-value="'+q+'">'+fmt(q)+' ('+pct(g.headcount?q/g.headcount*100:0)+')</td>').join('')+'</tr>';
+    $('pushBody'+i).innerHTML=dist.groups.map(distributionRow).join('')||emptyRow(6);$('pushTotal'+i).innerHTML=distributionRow(dist.total);
+    return;
+   }
+   const trends=pushTrends(all,filters,campaign,key);
+   table.tHead.innerHTML='<tr>'+[label,'Target','Sales','Achievement %','Gap (Shortfall Share)'].map(x=>'<th rowspan="2">'+x+'</th>').join('')+'<th colspan="4" scope="colgroup">Weekly Trend · QTY (IR)</th><th colspan="3" scope="colgroup">Monthly Trend · QTY (IR)</th></tr><tr>'+trends.weeks.slice(0,4).map(w=>'<th>'+date(w.start)+'–'+date(w.end)+'</th>').join('')+trends.months.map(m=>'<th>'+historyMonthLabel(m)+'</th>').join('')+'</tr>';
+   const trendCells=labels=>{const g=trends.sum(labels);return trends.weeks.slice(0,4).map((w,n)=>trendCell(w.available?g.weeks[n]:null,trends.weeks[n+1].available?g.weeks[n+1]:null)).join('')+trends.months.map(m=>{const prev=modelMonthOffset(m,-1);return trendCell(trends.complete(m)?g.months[m]||0:null,trends.complete(prev)?g.months[prev]||0:null);}).join('');};
    const shortfall=report.groups.length?pushShortfall(report.groups):null;
-   $('pushBody'+i).innerHTML=report.groups.map(g=>row(g,shortfall)).join('')||emptyRow(5);$('pushTotal'+i).innerHTML=row(report.total,shortfall,true);
+   $('pushBody'+i).innerHTML=report.groups.map(g=>row(g,shortfall).replace('</tr>',trendCells([g.label])+'</tr>')).join('')||emptyRow(12);$('pushTotal'+i).innerHTML=row(report.total,shortfall,true).replace('</tr>',trendCells(report.groups.map(g=>g.label))+'</tr>');
   });
   $('pushNotice').textContent=warnings.join(' ');
  }
+ section.addEventListener('click',e=>{const b=e.target.closest('[data-push-mode]');if(!b)return;mode=b.dataset.pushMode;section.querySelectorAll('[data-push-mode]').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.pushMode===mode)));renderPushModels();});
  $('pushView').addEventListener('change',renderPushModels);
  const before=render;render=()=>{before();renderPushModels();};window.evisPushModels={render:renderPushModels};
 })();
