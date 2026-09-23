@@ -94,22 +94,34 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
    if(i===0&&!report.allocationReady&&['dealer','channel'].includes(view))warnings.push('Allocations need June, July and August data, positive premium sales, and active headcount.');
    $('pushPeriod'+i).textContent=monthName(filters.month)+' · '+campaign.start+'–'+campaign.end+' sales window. '+(report.latest?'Uploaded sales through day '+report.latest+'.':'No uploaded sales in this window.')+(campaign.total===null?' Target not supplied.':'');
    const table=$('pushBody'+i).closest('table'),label={area:'Area',subregion:'Subregion',dealer:'Dealer',channel:'Customer Type'}[view],key={area:'_area',subregion:'_asm',dealer:'_customer',channel:'_channel'}[view];
+   table.dataset.pushMode=mode;
    if(mode==='distribution'){
     const dist=pushDistribution(all,roster,filters,campaign,view);
-    table.tHead.innerHTML='<tr>'+[label,'Active PS','0 Units','1 Unit','2 Units','3+ Units'].map(x=>'<th>'+x+'</th>').join('')+'</tr>';
+    table.tHead.innerHTML='<tr>'+[label,'Active PS','0 Units','1 Unit','2 Units','3+ Units'].map((x,n)=>'<th data-sort-column="'+n+'">'+x+'</th>').join('')+'</tr>';
     const distributionRow=g=>'<tr><td>'+escapeHtml(g.label)+'</td><td>'+fmt(g.headcount)+'</td>'+g.counts.map(q=>'<td data-sort-value="'+q+'">'+fmt(q)+' ('+pct(g.headcount?q/g.headcount*100:0)+')</td>').join('')+'</tr>';
     $('pushBody'+i).innerHTML=dist.groups.map(distributionRow).join('')||emptyRow(6);$('pushTotal'+i).innerHTML=distributionRow(dist.total);
     return;
    }
    const trends=pushTrends(all,filters,campaign,key);
-   table.tHead.innerHTML='<tr>'+[label,'Target','Sales','Achievement %','Gap (Shortfall Share)'].map(x=>'<th rowspan="2">'+x+'</th>').join('')+'<th colspan="4" scope="colgroup">Weekly Trend · QTY (IR)</th><th colspan="3" scope="colgroup">Monthly Trend · QTY (IR)</th></tr><tr>'+trends.weeks.slice(0,4).map(w=>'<th>'+date(w.start)+'–'+date(w.end)+'</th>').join('')+trends.months.map(m=>'<th>'+historyMonthLabel(m)+'</th>').join('')+'</tr>';
+   table.tHead.innerHTML='<tr>'+[label,'Target','Sales','Achievement %','Gap (Shortfall Share)'].map((x,n)=>'<th rowspan="2" data-sort-column="'+n+'">'+x+'</th>').join('')+'<th colspan="4" scope="colgroup">Weekly Trend · QTY (IR)</th><th colspan="3" scope="colgroup">Monthly Trend · QTY (IR)</th></tr><tr>'+trends.weeks.slice(0,4).map((w,n)=>'<th data-sort-column="'+(n+5)+'">'+date(w.start)+'–'+date(w.end)+'</th>').join('')+trends.months.map((m,n)=>'<th data-sort-column="'+(n+9)+'">'+historyMonthLabel(m)+'</th>').join('')+'</tr>';
    const trendCells=labels=>{const g=trends.sum(labels);return trends.weeks.slice(0,4).map((w,n)=>trendCell(w.available?g.weeks[n]:null,trends.weeks[n+1].available?g.weeks[n+1]:null)).join('')+trends.months.map(m=>{const prev=modelMonthOffset(m,-1);return trendCell(trends.complete(m)?g.months[m]||0:null,trends.complete(prev)?g.months[prev]||0:null);}).join('');};
    const shortfall=report.groups.length?pushShortfall(report.groups):null;
    $('pushBody'+i).innerHTML=report.groups.map(g=>row(g,shortfall).replace('</tr>',trendCells([g.label])+'</tr>')).join('')||emptyRow(12);$('pushTotal'+i).innerHTML=row(report.total,shortfall,true).replace('</tr>',trendCells(report.groups.map(g=>g.label))+'</tr>');
   });
   $('pushNotice').textContent=warnings.join(' ');
  }
- section.addEventListener('click',e=>{const b=e.target.closest('[data-push-mode]');if(!b)return;mode=b.dataset.pushMode;section.querySelectorAll('[data-push-mode]').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.pushMode===mode)));renderPushModels();});
- $('pushView').addEventListener('change',renderPushModels);
+ function resetPushSort(){section.querySelectorAll('table').forEach(t=>tableSortState.delete(t));}
+ section.addEventListener('click',e=>{const b=e.target.closest('[data-push-mode]');if(!b)return;resetPushSort();mode=b.dataset.pushMode;section.querySelectorAll('[data-push-mode]').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.pushMode===mode)));renderPushModels();});
+ $('pushView').addEventListener('change',()=>{resetPushSort();renderPushModels();});
  const before=render;render=()=>{before();renderPushModels();};window.evisPushModels={render:renderPushModels};
 })();
+
+// Color only trend headers; numeric cells retain the standard theme.
+(()=>{const style=document.createElement('style');style.textContent=`
+#pushModelsSection table th,#pushModelsSection table td{border:1px solid #8993a3}
+#pushModelsSection table[data-push-mode=sales] thead :is(th[data-sort-column="5"],th[data-sort-column="6"],th[data-sort-column="7"],th[data-sort-column="8"]),#pushModelsSection table[data-push-mode=sales] thead tr:first-child th:nth-child(6){background:#dceaff}
+#pushModelsSection table[data-push-mode=sales] thead :is(th[data-sort-column="9"],th[data-sort-column="10"],th[data-sort-column="11"]),#pushModelsSection table[data-push-mode=sales] thead tr:first-child th:nth-child(7){background:#e9dff8}
+html[data-theme=night] #pushModelsSection table th,html[data-theme=night] #pushModelsSection table td{border-color:#718096}
+html[data-theme=night] #pushModelsSection table[data-push-mode=sales] thead :is(th[data-sort-column="5"],th[data-sort-column="6"],th[data-sort-column="7"],th[data-sort-column="8"]),html[data-theme=night] #pushModelsSection table[data-push-mode=sales] thead tr:first-child th:nth-child(6){background:#294463}
+html[data-theme=night] #pushModelsSection table[data-push-mode=sales] thead :is(th[data-sort-column="9"],th[data-sort-column="10"],th[data-sort-column="11"]),html[data-theme=night] #pushModelsSection table[data-push-mode=sales] thead tr:first-child th:nth-child(7){background:#443657}
+`;document.head.append(style);})();
