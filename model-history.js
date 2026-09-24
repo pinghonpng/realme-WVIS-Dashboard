@@ -354,20 +354,41 @@ function effectiveDealerReport(all,month,filters,kind,onlyTop50=false){
  const dealers=[...new Set(periods.flatMap(p=>p.members.map(e=>e.dealer)))].sort((a,b)=>a.localeCompare(b));
  return {kind,month,cutoff,periods,dealers};
 }
+// Totals describe the current ACTIVE HR roster, including members with no sales.
+function effectiveRosterTotals(roster,kind,filters,all,onlyTop50=false){
+ if(!roster)return null;
+ const norm=v=>String(v||'').trim().replace(/\s+/g,' ').toLowerCase(),latest=new Map(),groups=new Map(),unique=new Set();
+ for(const r of all){if(!r._date||isNaN(r._date))continue;for(const key of [r._sid?'store:'+norm(r._sid):'',r._ps?'ps:'+norm(r._ps):''])if(key&&(!latest.has(key)||r._date>=latest.get(key)._date))latest.set(key,r);}
+ for(const entry of roster.entries){
+  const dealer=entry.customer||'Unassigned',record=latest.get('ps:'+norm(entry.id))||latest.get('store:'+norm(entry.sid)),values={_area:entry.area,_asm:entry.asm,_customer:dealer,_channel:record?._channel||'Unassigned'};
+  if(onlyTop50&&!isTop50Dealer(dealer))continue;
+  if(!filters.filter(([key])=>['_area','_asm','_customer','_channel'].includes(key)).every(([key,value])=>value==='ALL'||norm(values[key])===norm(value)))continue;
+  const key=kind==='effectiveStore'?(entry.sid?'id:'+norm(entry.sid):entry.store?'name:'+norm(entry.store):''):(entry.id?'id:'+norm(entry.id):'name:'+norm(entry.name));
+  if(!key)continue;
+  const dealerKey=norm(dealer);if(!groups.has(dealerKey))groups.set(dealerKey,{dealer,keys:new Set()});groups.get(dealerKey).keys.add(key);unique.add(key);
+ }
+ return {groups,total:unique.size};
+}
+
 let effectiveDealerSnapshot=null;
 function renderEffectiveDealers(){
  const month=selected('monthFilter');if(!/^\d{4}-\d{2}$/.test(month))return;
  const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
  const report=effectiveDealerReport(salesEnriched(),month,filters,dealerSalesMeasure,top50DealersOnly);effectiveDealerSnapshot=report;
+ const rosterTotals=effectiveRosterTotals(window.evisRoster?.getRoster(),dealerSalesMeasure,filters,salesEnriched(),top50DealersOnly);
+ const dealerKey=v=>String(v||'').trim().replace(/\s+/g,' ').toLowerCase();
+ if(rosterTotals){const seen=new Set(report.dealers.map(dealerKey));for(const group of rosterTotals.groups.values())if(!seen.has(dealerKey(group.dealer))){report.dealers.push(group.dealer);seen.add(dealerKey(group.dealer));}report.dealers.sort((a,b)=>a.localeCompare(b));}
  const table=$('dealerTableBody').closest('table'),labels=historyColumnLabels('Dealer',month,true),entity=dealerSalesMeasure==='effectiveStore'?'Store':'PS';
- table.tHead.innerHTML='<tr>'+labels.slice(0,5).map((l,i)=>'<th rowspan="2" scope="col" data-sort-column="'+i+'">'+escapeHtml(l)+'</th>').join('')+'<th colspan="3" scope="colgroup">Monthly Effective '+entity+' Count</th><th colspan="3" scope="colgroup">Increase Rate</th></tr><tr>'+labels.slice(5).map((l,i)=>'<th scope="col" data-sort-column="'+(i+5)+'">'+escapeHtml(l)+'</th>').join('')+'</tr>';
+ labels.splice(1,0,dealerSalesMeasure==='effectiveStore'?'Total Stores':'Total Promoters');
+ table.tHead.innerHTML='<tr>'+labels.slice(0,6).map((l,i)=>'<th rowspan="2" scope="col" data-sort-column="'+i+'">'+escapeHtml(l)+'</th>').join('')+'<th colspan="3" scope="colgroup">Monthly Effective '+entity+' Count</th><th colspan="3" scope="colgroup">Increase Rate</th></tr><tr>'+labels.slice(6).map((l,i)=>'<th scope="col" data-sort-column="'+(i+6)+'">'+escapeHtml(l)+'</th>').join('')+'</tr>';
  const count=(p,dealer)=>!p.available?null:dealer===null?[...p.counts.values()].reduce((a,b)=>a+b,0):p.counts.get(dealer)||0;
  const decline=report.periods[0].available&&report.periods[1].available?historyTotalDecline(report.dealers,report.periods[0].counts,report.periods[1].counts):null;
  const attrs=(dealer,index)=>' data-effective-period="'+index+'"'+(dealer===null?' data-effective-total="true"':' data-effective-dealer="'+escapeHtml(dealer)+'"');
  const cell=(dealer,index)=>{const value=count(report.periods[index],dealer);return '<td data-sort-value="'+(value??'')+'">'+(value===null?'—':'<button type="button" class="effective-detail-button"'+attrs(dealer,index)+' aria-label="'+escapeHtml('Show effective '+entity+' for '+(dealer??'WVIS')+', '+historyMonthLabel(report.periods[index].month)+(report.periods[index].mtd?' MTD':''))+'">'+fmt(value)+'</button>')+'</td>';};
  const gap=(a,b,total)=>modelGapCell(a,b,decline,total).replace(/title="[^"]*"/,'title="Change in effective '+entity+' count; percentage is share of total decline in qualifying counts."');
- const row=dealer=>{const current=count(report.periods[0],dealer),previous=count(report.periods[1],dealer);return '<tr><'+(dealer===null?'th scope="row"':'td')+'>'+(dealer===null?'WVIS':'<button type="button" class="effective-detail-button"'+attrs(dealer,0)+'>'+escapeHtml(dealer)+'</button>')+'</'+(dealer===null?'th':'td')+'>'+cell(dealer,0)+cell(dealer,1)+gap(current,previous,dealer===null)+modelRateCell(current,previous)+[3,4,5].map(i=>cell(dealer,i)).join('')+[3,4,5].map(i=>modelRateCell(count(report.periods[i],dealer),count(report.periods[i-1],dealer))).join('')+'</tr>';};
- $('dealerTableBody').innerHTML=report.dealers.map(row).join('')||emptyRow(11);
+ const totalCell=dealer=>{const total=rosterTotals?(dealer===null?rosterTotals.total:rosterTotals.groups.get(dealerKey(dealer))?.keys.size||0):null;return '<td data-sort-value="'+(total??'')+'" title="Current ACTIVE HR list: unique promoters or their assigned stores. Territory/customer/channel filters apply; product filters do not reduce the roster total. Historical effective counts may include resigned promoters.">'+(total===null?'—':fmt(total))+'</td>';};
+ const row=dealer=>{const current=count(report.periods[0],dealer),previous=count(report.periods[1],dealer);return '<tr><'+(dealer===null?'th scope="row"':'td')+'>'+(dealer===null?'WVIS':'<button type="button" class="effective-detail-button"'+attrs(dealer,0)+'>'+escapeHtml(dealer)+'</button>')+'</'+(dealer===null?'th':'td')+'>'+totalCell(dealer)+cell(dealer,0)+cell(dealer,1)+gap(current,previous,dealer===null)+modelRateCell(current,previous)+[3,4,5].map(i=>cell(dealer,i)).join('')+[3,4,5].map(i=>modelRateCell(count(report.periods[i],dealer),count(report.periods[i-1],dealer))).join('')+'</tr>';};
+ $('dealerTableBody').innerHTML=report.dealers.map(row).join('')||emptyRow(12);
  const footer=table.tFoot||table.createTFoot();footer.dataset.summary='history';footer.innerHTML=row(null);footer.title='Unique effective '+entity+' counts. Each entity is assigned once to its latest recorded dealer in that period.';
  document.querySelectorAll('[data-dealer-measure]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.dealerMeasure===dealerSalesMeasure)));
  $('top50DealersToggle').setAttribute('aria-pressed',String(top50DealersOnly));
