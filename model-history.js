@@ -82,10 +82,11 @@ const renderBeforeDealers=render;
 const top50DealerNames=new Set(['AEROFONE','JM Group','Cellboy','GALLEON ENTERPRISES','Tonnys Cellshop','Cellcom Word Communications','PLAY TELECOM','EMCOR','D Cell City','Ji Telecom','MemoXpress','TFT DIGITAL HUB CO.','Shanyi Cellphone and Accessories - WVIS','BSD','OCTAGON'].map(name=>name.trim().replace(/\s+/g,' ').toLowerCase()));
 function isTop50Dealer(name){return top50DealerNames.has(String(name||'').trim().replace(/\s+/g,' ').toLowerCase());}
 let top50DealersOnly=false;try{top50DealersOnly=localStorage.getItem('wvis.top50DealersOnly')==='true';}catch{}
-let dealerSalesMeasure='qty';try{if(localStorage.getItem('wvis.dealerSalesMeasure')==='amount')dealerSalesMeasure='amount';}catch{}
-const top50Controls=document.createElement('div');top50Controls.className='top50-dealer-controls';top50Controls.innerHTML='<button type="button" class="secondary-btn" id="top50DealersToggle" aria-pressed="false" aria-controls="dealerTableBody">Top 50 Dealers only</button><div role="group" aria-label="Dealer sales measure"><button type="button" class="secondary-btn" data-dealer-measure="qty" aria-pressed="true">Sales QTY</button> <button type="button" class="secondary-btn" data-dealer-measure="amount" aria-pressed="false">Sales Amount (₱)</button></div><span id="top50DealersStatus" role="status"></span>';
+let dealerSalesMeasure='qty';try{if(['amount','effectiveStore','effectivePS'].includes(localStorage.getItem('wvis.dealerSalesMeasure')))dealerSalesMeasure=localStorage.getItem('wvis.dealerSalesMeasure');}catch{}
+const top50Controls=document.createElement('div');top50Controls.className='top50-dealer-controls';top50Controls.innerHTML='<button type="button" class="secondary-btn" id="top50DealersToggle" aria-pressed="false" aria-controls="dealerTableBody">Top 50 Dealers only</button><div role="group" aria-label="Dealer sales measure"><button type="button" class="secondary-btn" data-dealer-measure="qty" aria-pressed="true">Sales QTY</button> <button type="button" class="secondary-btn" data-dealer-measure="amount" aria-pressed="false">Sales Amount (₱)</button> <button type="button" class="secondary-btn" data-dealer-measure="effectiveStore" aria-pressed="false">Effective Store</button> <button type="button" class="secondary-btn" data-dealer-measure="effectivePS" aria-pressed="false">Effective PS</button></div><span id="top50DealersStatus" role="status"></span>';
 dealerSection.querySelector('.table-wrap').before(top50Controls);
 function renderDealerPerformance(){
+ if(['effectiveStore','effectivePS'].includes(dealerSalesMeasure)){renderEffectiveDealers();return;}
  const rows=top50DealersOnly?state.filteredSales.filter(r=>isTop50Dealer(r._customer)):state.filteredSales;
  renderModelHistory(rows,'dealerTableBody','_customer','Dealer',{measure:dealerSalesMeasure,...(top50DealersOnly?{entityFilter:isTop50Dealer}:{})});
  document.querySelectorAll('[data-dealer-measure]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.dealerMeasure===dealerSalesMeasure)));
@@ -95,7 +96,7 @@ function renderDealerPerformance(){
  if(missingAmounts)$('top50DealersStatus').textContent+=' Sales Amount is missing in '+missingAmounts+' rows; totals exclude those amounts.';
 }
 $('top50DealersToggle').addEventListener('click',()=>{top50DealersOnly=!top50DealersOnly;try{localStorage.setItem('wvis.top50DealersOnly',String(top50DealersOnly));}catch{}renderDealerPerformance();});
-document.addEventListener('click',e=>{const b=e.target.closest('[data-dealer-measure]');if(!b)return;dealerSalesMeasure=b.dataset.dealerMeasure;try{localStorage.setItem('wvis.dealerSalesMeasure',dealerSalesMeasure);}catch{}renderDealerPerformance();});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-dealer-measure]');if(!b)return;if(typeof tableSortState!=='undefined')tableSortState.delete($('dealerTableBody').closest('table'));dealerSalesMeasure=b.dataset.dealerMeasure;try{localStorage.setItem('wvis.dealerSalesMeasure',dealerSalesMeasure);}catch{}renderDealerPerformance();});
 render=()=>{renderBeforeDealers();renderDealerPerformance();};
 const top50Style=document.createElement('style');top50Style.textContent='.top50-dealer-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}.top50-dealer-controls span{font-size:12px;color:#747a85}#top50DealersToggle[aria-pressed="true"],[data-dealer-measure][aria-pressed="true"],[data-ps-measure][aria-pressed="true"],[data-detail-measure][aria-pressed="true"]{background:#fff2bc;border-color:#d4ad20;color:#111214}';document.head.append(top50Style);
 const dealerStyle=document.createElement('style');
@@ -316,4 +317,74 @@ function entitySeriesReport(all,rows,month,measure='qty'){
  document.addEventListener('click',event=>{const b=event.target.closest('[data-entity-detail]');if(!b)return;detailButton=b;detailMeasure=b.dataset.entityDetail==='dealerTableBody'?dealerSalesMeasure:(window.evisPsSalesReview?.measure()||'qty');showDetail(b);});
  dialog.addEventListener('click',event=>{const b=event.target.closest('[data-detail-measure]');if(!b)return;detailMeasure=b.dataset.detailMeasure;showDetail(detailButton);});
  const style=document.createElement('style');style.textContent='[data-entity-detail]{border:0;background:none;color:inherit;font:inherit;font-weight:700;cursor:pointer;text-decoration:underline;text-underline-offset:3px}.entity-performance-dialog{width:min(1450px,94vw);max-height:88vh;overflow:auto;border:1px solid var(--line);border-radius:16px;padding:24px;background:var(--card);color:var(--text)}.entity-performance-dialog::backdrop{background:#0009}.entity-detail-head,.entity-detail-kpis{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:20px}.entity-performance-dialog table{width:100%;border-collapse:collapse}.entity-performance-dialog :is(td,th){border:1px solid var(--line);padding:12px;text-align:center;white-space:nowrap}.entity-performance-dialog :is(thead,tfoot){background:#f1f2f5}.entity-performance-dialog .up{color:#238344}.entity-performance-dialog .down{color:#c63c3c}.entity-performance-dialog .steady{color:#286bc1}.entity-performance-dialog .missing,.entity-performance-dialog p{color:var(--muted)}html[data-theme=night] .entity-performance-dialog :is(thead,tfoot){background:#293547}html[data-theme=night] .entity-performance-dialog .up{color:#a1efbe}html[data-theme=night] .entity-performance-dialog .down{color:#ffb4b4}html[data-theme=night] .entity-performance-dialog .steady{color:#94beff}';document.head.append(style);
+})();
+
+
+// Effective counts compare each entity with its own preceding-period unit sales.
+function effectiveDealerReport(all,month,filters,kind,onlyTop50=false){
+ const monthDays=m=>{const [y,n]=m.split('-').map(Number);return new Date(y,n,0).getDate();};
+ const norm=v=>String(v||'').trim().replace(/\s+/g,' ').toLowerCase();
+ const buckets=new Map(Array.from({length:6},(_,i)=>[modelMonthOffset(month,-i),{latest:0,rows:[]} ]));
+ for(const r of all){const bucket=buckets.get(modelMonthKey(r._date));if(!bucket)continue;bucket.latest=Math.max(bucket.latest,r._date.getDate());if(filters.every(([k,v])=>passes(r[k],v)))bucket.rows.push(r);}
+ const cutoff=buckets.get(month).latest;
+ function entities(m,end){
+  const result=new Map();
+  for(const r of buckets.get(m)?.rows||[]){
+   if(r._date.getDate()>end)continue;
+   const role=normalize(find(r,'SR Role')).toUpperCase();if(kind==='effectivePS'&&role&&!['SP','NHT'].includes(role))continue;
+   const id=kind==='effectiveStore'?norm(r._sid):norm(r._ps),name=kind==='effectiveStore'?r._store:find(r,'PS Name','Promoter Name','Frontliner Name');
+   const key=id?'id:'+id:name?'name:'+norm(name):'';if(!key)continue;
+   if(!result.has(key))result.set(key,{key,name:name||String(kind==='effectiveStore'?r._sid:r._ps),units:0,dealer:'Unassigned',store:'—',latest:-Infinity});
+   const entity=result.get(key);entity.units+=r._qty;
+   if(+r._date>=entity.latest){entity.latest=+r._date;entity.dealer=r._customer||'Unassigned';entity.store=r._store||'—';if(name)entity.name=name;}
+  }
+  return result;
+ }
+ function period(m,days,mtd){
+  const previous=modelMonthOffset(m,-1),end=mtd?Math.min(days,monthDays(m)):monthDays(m),previousEnd=mtd?Math.min(days,monthDays(previous)):monthDays(previous);
+  const available=end>0&&(buckets.get(m)?.latest||0)>=end&&(buckets.get(previous)?.latest||0)>=previousEnd;
+  const current=entities(m,end),prior=entities(previous,previousEnd),members=[];
+  for(const [key,c] of current){const before=prior.get(key)?.units||0;if(onlyTop50&&!isTop50Dealer(c.dealer))continue;
+   members.push({...c,previous:before,status:c.units>0&&before>0&&c.units>=before?'effective':c.units>0&&before<=0?'new':'below'});
+  }
+  const counts=new Map();if(available)for(const member of members)if(member.status==='effective')counts.set(member.dealer,(counts.get(member.dealer)||0)+1);
+  return {month:m,previous,end,previousEnd,mtd,available,members,counts};
+ }
+ const periods=[period(month,cutoff,true),period(modelMonthOffset(month,-1),cutoff,true),...[-4,-3,-2,-1].map(i=>period(modelMonthOffset(month,i),0,false))];
+ const dealers=[...new Set(periods.flatMap(p=>p.members.map(e=>e.dealer)))].sort((a,b)=>a.localeCompare(b));
+ return {kind,month,cutoff,periods,dealers};
+}
+let effectiveDealerSnapshot=null;
+function renderEffectiveDealers(){
+ const month=selected('monthFilter');if(!/^\d{4}-\d{2}$/.test(month))return;
+ const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
+ const report=effectiveDealerReport(salesEnriched(),month,filters,dealerSalesMeasure,top50DealersOnly);effectiveDealerSnapshot=report;
+ const table=$('dealerTableBody').closest('table'),labels=historyColumnLabels('Dealer',month,true),entity=dealerSalesMeasure==='effectiveStore'?'Store':'PS';
+ table.tHead.innerHTML='<tr>'+labels.slice(0,5).map((l,i)=>'<th rowspan="2" scope="col" data-sort-column="'+i+'">'+escapeHtml(l)+'</th>').join('')+'<th colspan="3" scope="colgroup">Monthly Effective '+entity+' Count</th><th colspan="3" scope="colgroup">Increase Rate</th></tr><tr>'+labels.slice(5).map((l,i)=>'<th scope="col" data-sort-column="'+(i+5)+'">'+escapeHtml(l)+'</th>').join('')+'</tr>';
+ const count=(p,dealer)=>!p.available?null:dealer===null?[...p.counts.values()].reduce((a,b)=>a+b,0):p.counts.get(dealer)||0;
+ const decline=report.periods[0].available&&report.periods[1].available?historyTotalDecline(report.dealers,report.periods[0].counts,report.periods[1].counts):null;
+ const attrs=(dealer,index)=>' data-effective-period="'+index+'"'+(dealer===null?' data-effective-total="true"':' data-effective-dealer="'+escapeHtml(dealer)+'"');
+ const cell=(dealer,index)=>{const value=count(report.periods[index],dealer);return '<td data-sort-value="'+(value??'')+'">'+(value===null?'—':'<button type="button" class="effective-detail-button"'+attrs(dealer,index)+' aria-label="'+escapeHtml('Show effective '+entity+' for '+(dealer??'WVIS')+', '+historyMonthLabel(report.periods[index].month)+(report.periods[index].mtd?' MTD':''))+'">'+fmt(value)+'</button>')+'</td>';};
+ const gap=(a,b,total)=>modelGapCell(a,b,decline,total).replace(/title="[^"]*"/,'title="Change in effective '+entity+' count; percentage is share of total decline in qualifying counts."');
+ const row=dealer=>{const current=count(report.periods[0],dealer),previous=count(report.periods[1],dealer);return '<tr><'+(dealer===null?'th scope="row"':'td')+'>'+(dealer===null?'WVIS':'<button type="button" class="effective-detail-button"'+attrs(dealer,0)+'>'+escapeHtml(dealer)+'</button>')+'</'+(dealer===null?'th':'td')+'>'+cell(dealer,0)+cell(dealer,1)+gap(current,previous,dealer===null)+modelRateCell(current,previous)+[3,4,5].map(i=>cell(dealer,i)).join('')+[3,4,5].map(i=>modelRateCell(count(report.periods[i],dealer),count(report.periods[i-1],dealer))).join('')+'</tr>';};
+ $('dealerTableBody').innerHTML=report.dealers.map(row).join('')||emptyRow(11);
+ const footer=table.tFoot||table.createTFoot();footer.dataset.summary='history';footer.innerHTML=row(null);footer.title='Unique effective '+entity+' counts. Each entity is assigned once to its latest recorded dealer in that period.';
+ document.querySelectorAll('[data-dealer-measure]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.dealerMeasure===dealerSalesMeasure)));
+ $('top50DealersToggle').setAttribute('aria-pressed',String(top50DealersOnly));
+ $('top50DealersStatus').textContent='Matched / exceeded previous-period units · zero benchmarks excluded';
+ table.closest('article').querySelector('.card-head p').textContent='Effective '+entity+': MTD compares equal calendar-day windows; historical columns compare full months. Counts exclude zero benchmarks. Latest recorded dealer assignment per period. All universal filters apply.';
+ if(typeof refreshTableSorting==='function')refreshTableSorting();
+}
+(()=>{
+ const dialog=document.createElement('dialog');dialog.className='entity-performance-dialog';dialog.setAttribute('aria-labelledby','effectiveDetailTitle');document.body.append(dialog);
+ document.addEventListener('click',event=>{
+  const button=event.target.closest('button[data-effective-period]');if(!button||!effectiveDealerSnapshot)return;
+  const report=effectiveDealerSnapshot,p=report.periods[Number(button.dataset.effectivePeriod)],dealer=button.dataset.effectiveTotal?null:button.dataset.effectiveDealer;if(!p?.available)return;
+  const ps=report.kind==='effectivePS',members=p.members.filter(e=>dealer===null||e.dealer===dealer),qualified=members.filter(e=>e.status==='effective'),fresh=members.filter(e=>e.status==='new');
+  const periodLabel=m=>historyMonthLabel(m)+(p.mtd?' MTD':'');
+  const renderList=(list,title)=>'<h3>'+title+' · '+fmt(list.length)+'</h3><div class="table-wrap"><table data-no-sort><thead><tr><th>'+(ps?'Promoter':'Store')+'</th>'+(ps?'<th>Store</th>':'')+'<th>Dealer</th><th>'+periodLabel(p.month)+' Units</th><th>'+periodLabel(p.previous)+' Units</th><th>Change</th><th>Result</th></tr></thead><tbody>'+list.sort((a,b)=>a.name.localeCompare(b.name)).map(e=>'<tr><td>'+escapeHtml(e.name)+'</td>'+(ps?'<td>'+escapeHtml(e.store)+'</td>':'')+'<td>'+escapeHtml(e.dealer)+'</td><td>'+fmt(e.units)+'</td><td>'+fmt(e.previous)+'</td><td>'+((e.units-e.previous)>0?'+':'')+fmt(e.units-e.previous)+'</td><td>'+ (e.status==='new'?'New / Reactivated':e.units===e.previous?'Matched':'Above')+'</td></tr>').join('')+(list.length?'':emptyRow(ps?7:6))+'</tbody><tfoot><tr><th colspan="'+(ps?7:6)+'">'+fmt(list.length)+' '+(ps?'promoters':'stores')+'</th></tr></tfoot></table></div>';
+  dialog.innerHTML='<div class="entity-detail-head"><h2 id="effectiveDetailTitle">'+escapeHtml((dealer??'WVIS')+' · Effective '+(ps?'PS':'Store'))+'</h2><button type="button" class="secondary-btn" data-effective-close>Close</button></div><p>'+escapeHtml(historyMonthLabel(p.month)+' 1–'+p.end+' vs '+historyMonthLabel(p.previous)+' 1–'+p.previousEnd)+'. Latest recorded dealer/store assignment in this period.</p>'+renderList(qualified,'Matched / Exceeded Previous Period')+renderList(fresh,'New / Reactivated — excluded from effective count');
+  dialog.querySelector('[data-effective-close]').onclick=()=>dialog.close();if(!dialog.open)dialog.showModal();
+ });
+ const style=document.createElement('style');style.textContent='.effective-detail-button{border:0;background:none;color:inherit;font:inherit;font-weight:600;text-decoration:underline;text-underline-offset:3px;cursor:pointer}.effective-detail-button:focus-visible{outline:2px solid #9a7900;outline-offset:3px}';document.head.append(style);
 })();
