@@ -344,10 +344,10 @@ function effectiveDealerReport(all,month,filters,kind,onlyTop50=false){
   const previous=modelMonthOffset(m,-1),end=mtd?Math.min(days,monthDays(m)):monthDays(m),previousEnd=mtd?Math.min(days,monthDays(previous)):monthDays(previous);
   const available=end>0&&(buckets.get(m)?.latest||0)>=end&&(buckets.get(previous)?.latest||0)>=previousEnd;
   const current=entities(m,end),prior=entities(previous,previousEnd),members=[];
-  for(const [key,c] of current){const before=prior.get(key)?.units||0;if(onlyTop50&&!isTop50Dealer(c.dealer))continue;
-   members.push({...c,previous:before,status:c.units>0&&before>0&&c.units>=before?'effective':c.units>0&&before<=0?'new':'below'});
+  for(const key of new Set([...current.keys(),...prior.keys()])){const c=current.get(key)||{...prior.get(key),units:0},before=prior.get(key)?.units||0;if(onlyTop50&&!isTop50Dealer(c.dealer))continue;
+   members.push({...c,previous:before,status:c.units>0&&before>0&&c.units>=before?'effective':c.units>0&&before<=0?'new':c.units<before?'declined':'zero'});
   }
-  const counts=new Map();if(available)for(const member of members)if(member.status==='effective')counts.set(member.dealer,(counts.get(member.dealer)||0)+1);
+  const counts=new Map();if(available)for(const member of members)if(['effective','new'].includes(member.status))counts.set(member.dealer,(counts.get(member.dealer)||0)+1);
   return {month:m,previous,end,previousEnd,mtd,available,members,counts};
  }
  const periods=[period(month,cutoff,true),period(modelMonthOffset(month,-1),cutoff,true),...[-4,-3,-2,-1].map(i=>period(modelMonthOffset(month,i),0,false))];
@@ -371,8 +371,8 @@ function renderEffectiveDealers(){
  const footer=table.tFoot||table.createTFoot();footer.dataset.summary='history';footer.innerHTML=row(null);footer.title='Unique effective '+entity+' counts. Each entity is assigned once to its latest recorded dealer in that period.';
  document.querySelectorAll('[data-dealer-measure]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.dealerMeasure===dealerSalesMeasure)));
  $('top50DealersToggle').setAttribute('aria-pressed',String(top50DealersOnly));
- $('top50DealersStatus').textContent='Matched / exceeded previous-period units · zero benchmarks excluded';
- table.closest('article').querySelector('.card-head p').textContent='Effective '+entity+': MTD compares equal calendar-day windows; historical columns compare full months. Counts exclude zero benchmarks. Latest recorded dealer assignment per period. All universal filters apply.';
+ $('top50DealersStatus').textContent='Matched / exceeded previous-period units · includes New / Reactivated';
+ table.closest('article').querySelector('.card-head p').textContent='Effective '+entity+': MTD compares equal calendar-day windows; historical columns compare full months. Counts include New / Reactivated; zero sales in both periods are excluded. Latest recorded dealer assignment per period. All universal filters apply.';
  if(typeof refreshTableSorting==='function')refreshTableSorting();
 }
 (()=>{
@@ -380,10 +380,10 @@ function renderEffectiveDealers(){
  document.addEventListener('click',event=>{
   const button=event.target.closest('button[data-effective-period]');if(!button||!effectiveDealerSnapshot)return;
   const report=effectiveDealerSnapshot,p=report.periods[Number(button.dataset.effectivePeriod)],dealer=button.dataset.effectiveTotal?null:button.dataset.effectiveDealer;if(!p?.available)return;
-  const ps=report.kind==='effectivePS',members=p.members.filter(e=>dealer===null||e.dealer===dealer),qualified=members.filter(e=>e.status==='effective'),fresh=members.filter(e=>e.status==='new');
+  const ps=report.kind==='effectivePS',members=p.members.filter(e=>dealer===null||e.dealer===dealer),qualified=members.filter(e=>['effective','new'].includes(e.status)),declined=members.filter(e=>e.status==='declined');
   const periodLabel=m=>historyMonthLabel(m)+(p.mtd?' MTD':'');
-  const renderList=(list,title)=>'<h3>'+title+' · '+fmt(list.length)+'</h3><div class="table-wrap"><table data-no-sort><thead><tr><th>'+(ps?'Promoter':'Store')+'</th>'+(ps?'<th>Store</th>':'')+'<th>Dealer</th><th>'+periodLabel(p.month)+' Units</th><th>'+periodLabel(p.previous)+' Units</th><th>Change</th><th>Result</th></tr></thead><tbody>'+list.sort((a,b)=>a.name.localeCompare(b.name)).map(e=>'<tr><td>'+escapeHtml(e.name)+'</td>'+(ps?'<td>'+escapeHtml(e.store)+'</td>':'')+'<td>'+escapeHtml(e.dealer)+'</td><td>'+fmt(e.units)+'</td><td>'+fmt(e.previous)+'</td><td>'+((e.units-e.previous)>0?'+':'')+fmt(e.units-e.previous)+'</td><td>'+ (e.status==='new'?'New / Reactivated':e.units===e.previous?'Matched':'Above')+'</td></tr>').join('')+(list.length?'':emptyRow(ps?7:6))+'</tbody><tfoot><tr><th colspan="'+(ps?7:6)+'">'+fmt(list.length)+' '+(ps?'promoters':'stores')+'</th></tr></tfoot></table></div>';
-  dialog.innerHTML='<div class="entity-detail-head"><h2 id="effectiveDetailTitle">'+escapeHtml((dealer??'WVIS')+' · Effective '+(ps?'PS':'Store'))+'</h2><button type="button" class="secondary-btn" data-effective-close>Close</button></div><p>'+escapeHtml(historyMonthLabel(p.month)+' 1–'+p.end+' vs '+historyMonthLabel(p.previous)+' 1–'+p.previousEnd)+'. Latest recorded dealer/store assignment in this period.</p>'+renderList(qualified,'Matched / Exceeded Previous Period')+renderList(fresh,'New / Reactivated — excluded from effective count');
+  const renderList=(list,title)=>'<h3>'+title+' · '+fmt(list.length)+'</h3><div class="table-wrap"><table data-no-sort><thead><tr><th>'+(ps?'Promoter':'Store')+'</th>'+(ps?'<th>Store</th>':'')+'<th>Dealer</th><th>'+periodLabel(p.month)+' Units</th><th>'+periodLabel(p.previous)+' Units</th><th>Change</th><th>Result</th></tr></thead><tbody>'+list.sort((a,b)=>a.name.localeCompare(b.name)).map(e=>'<tr><td>'+escapeHtml(e.name)+'</td>'+(ps?'<td>'+escapeHtml(e.store)+'</td>':'')+'<td>'+escapeHtml(e.dealer)+'</td><td>'+fmt(e.units)+'</td><td>'+fmt(e.previous)+'</td><td>'+((e.units-e.previous)>0?'+':'')+fmt(e.units-e.previous)+'</td><td>'+ (e.status==='new'?'New / Reactivated':e.status==='declined'?'Declined':e.units===e.previous?'Matched':'Above')+'</td></tr>').join('')+(list.length?'':emptyRow(ps?7:6))+'</tbody><tfoot><tr><th colspan="'+(ps?7:6)+'">'+fmt(list.length)+' '+(ps?'promoters':'stores')+'</th></tr></tfoot></table></div>';
+  dialog.innerHTML='<div class="entity-detail-head"><h2 id="effectiveDetailTitle">'+escapeHtml((dealer??'WVIS')+' · Effective '+(ps?'PS':'Store'))+'</h2><button type="button" class="secondary-btn" data-effective-close>Close</button></div><p>'+escapeHtml(historyMonthLabel(p.month)+' 1–'+p.end+' vs '+historyMonthLabel(p.previous)+' 1–'+p.previousEnd)+'. Latest recorded dealer/store assignment; previous-period assignment is used when there are no current-period sales.</p>'+renderList(qualified,'Matched / Exceeded Previous Period')+renderList(declined,'Declined — below previous period');
   dialog.querySelector('[data-effective-close]').onclick=()=>dialog.close();if(!dialog.open)dialog.showModal();
  });
  const style=document.createElement('style');style.textContent='.effective-detail-button{border:0;background:none;color:inherit;font:inherit;font-weight:600;text-decoration:underline;text-underline-offset:3px;cursor:pointer}.effective-detail-button:focus-visible{outline:2px solid #9a7900;outline-offset:3px}';document.head.append(style);
