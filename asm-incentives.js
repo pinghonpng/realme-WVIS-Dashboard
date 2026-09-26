@@ -1,5 +1,5 @@
 // Incentives use all uploaded sales in their own month, independent of universal filters.
-function asmIncentiveReport(all,roster,month){
+function asmIncentiveReport(all,roster,month,productType='ALL'){
  const period=all.filter(r=>modelMonthKey(r._date)===month),cutoff=period.reduce((d,r)=>Math.max(d,+r._date),-Infinity);
  const byId=new Map((roster?.entries||[]).filter(e=>e.id).map(e=>[e.id,e])),byName=new Map((roster?.entries||[]).map(e=>[rosterName(e.name),e]));
  const match=r=>{const id=rosterCode(r._ps),named=byName.get(rosterName(find(r,'PS Name','Promoter Name')));return byId.get(id)||((!id||!named?.id)&&named)||null;};
@@ -8,7 +8,7 @@ function asmIncentiveReport(all,roster,month){
  const group=r=>{const key=territory(r);if(!groups.has(key))groups.set(key,{key,area:r._area||'Unassigned',subregion:r._asm||'Unassigned',headcount:0,baselineScore:0,promoterUnits:0,promoterScore:0,flUnits:0,flScore:0,missing:!roster,people:new Map()});return groups.get(key);};
  const person=(g,key,name,type,active)=>{const k=JSON.stringify([key,type]);if(!g.people.has(k))g.people.set(k,{name,type,active,units:0,score:0,deduction:0,missing:false,store:'',stores:new Set()});return g.people.get(k);};
  for(const r of all){if(!r._date||isNaN(r._date)||+r._date>cutoff)continue;const e=match(r);if(e){if(!latest.has(e.key)||r._date>=latest.get(e.key)._date)latest.set(e.key,r);const hire=productivityHireDay(find(r,'SR Hire Date','Hire Date'));if(hire!==null&&(!hires.has(e.key)||r._date>=hires.get(e.key).record))hires.set(e.key,{day:hire,record:r._date});}}
- for(const r of period){
+ for(const r of period){if(!passes(r._productType,productType))continue;
   const rawRole=role(r),type=['SP','NHT'].includes(rawRole)?'Promoter':rawRole==='FL'?'FL':rawRole||'Unknown role',e=match(r),g=group(r);
   const name=normalize(find(r,'PS Name','Promoter Name'))||normalize(r._ps)||'Unassigned',key=e?.key||rosterCode(r._ps)||rosterName(name);
   const p=person(g,key,name,type,!!e);p.units+=r._qty;p.score+=r._points??0;if(type==='Promoter')p.store=normalize(e?.store);if(type==='FL'){const store=normalize(r._store||find(r,'Store Name','Store','Outlet','Shop'));if(store)p.stores.add(store);}
@@ -37,7 +37,7 @@ function asmIncentiveTotal(groups){return groups.reduce((t,g)=>{for(const k of [
  function renderAsm(){
   const all=salesEnriched(),months=uniq(all.map(r=>modelMonthKey(r._date)).filter(Boolean)).sort().reverse(),select=$('asmIncentiveMonth'),old=select.value;
   if([...select.options].map(o=>o.value).join()!==months.join())select.innerHTML=months.map(m=>'<option value="'+m+'">'+escapeHtml(monthName(m))+'</option>').join('');select.value=months.includes(old)?old:months[0]||'';
-  const roster=window.evisRoster?.getRoster(),report=asmIncentiveReport(all,roster,select.value),sub=$('asmIncentiveSubregion'),prior=sub.value;
+  const roster=window.evisRoster?.getRoster(),report=asmIncentiveReport(all,roster,select.value,selected('productTypeFilter')),sub=$('asmIncentiveSubregion'),prior=sub.value;
   sub.innerHTML='<option value="ALL">All subregions</option>'+report.groups.map(g=>'<option value="'+escapeHtml(g.key)+'">'+escapeHtml(g.area+' / '+g.subregion)+'</option>').join('');sub.value=report.groups.some(g=>g.key===prior)?prior:'ALL';
   const groups=report.groups.filter(g=>sub.value==='ALL'||g.key===sub.value),total=asmIncentiveTotal(groups),detail=$('asmIncentiveView').value==='contributions';
   const cols=detail?['Name','Role','Current Store Assignment','Subregion','Sales Units','Score','Baseline Score','Promoter × ₱4','FL × ₱10','Contribution']:['Area','Subregion','Active PS','Promoter Units','Promoter Score','FL Units','FL Score','Promoter × ₱4','FL × ₱10','Running Incentive'];
