@@ -6,7 +6,7 @@ let manifest=null,session=null,admin=window.dashboardAccount.role==='admin',busy
 const cache=new Map();
 const salesSheet={id:'1AaSTsNKEO0olJ1UxCwtSLpktkSMKvfiDERlBLhWFDkc',tabs:{fixed:'PREVIOUS MONTHS',current:'CURRENT MONTH'}};
 let sheetSnapshot=null,sheetFailure='',sheetChecked=null,installedVersion='';
-const sheetCacheKey='googleSales:v3:'+salesSheet.id;
+const sheetCacheKey='googleSales:v4:'+salesSheet.id;
 const say=message=>{$('sharedStatus').textContent=message;};
 async function request(path,options={}){
  const response=await fetch('/api/gateway?op=shared&path='+encodeURIComponent(path),{...options,cache:'no-store',headers:{apikey:config.publishableKey,...(session?{Authorization:'Bearer '+session.access_token}:{}),...options.headers}});
@@ -15,8 +15,8 @@ async function request(path,options={}){
 }
 function canonicalSales(file){
  if(!file)return null;
- const headers=['Date','Store ID','Store Name','Model','Qty','Area','ASM','Customer','Channel','PS ID','PS Name','Sales Amount','SR Hire Date','Customer Type','SR Role','Material Name','物料分组'];
- const aliases=[['Date','Sales Date','Sellout Date','Transaction Date'],['Store ID','StoreID','store_id','Store Code','Outlet ID'],['Store Name','Store','Outlet','Shop'],['Model','SKU','Product','Model Name'],['Qty','Quantity','Sales','Units','Sellout Qty','Sales Qty'],['Area','Province','Territory'],['ASM','Manager','Sales Manager'],['Customer','Account','Dealer','Client'],['Channel','Store Type','Channel Type'],['PS ID','Promoter ID','Frontliner ID','PS','Promoter'],['PS Name','Promoter Name','Frontliner Name'],['Sales Amount','Sales Value','Amount'],['SR Hire Date','Hire Date'],['Customer Type'],['SR Role'],['Material Name'],['物料分组']];
+ const headers=['Date','Store ID','Store Name','Model','Qty','Area','ASM','Customer','Channel','PS ID','PS Name','Sales Amount','SR Hire Date','Customer Type','SR Role','Material Name','物料分组','Color'];
+ const aliases=[['Date','Sales Date','Sellout Date','Transaction Date'],['Store ID','StoreID','store_id','Store Code','Outlet ID'],['Store Name','Store','Outlet','Shop'],['Model','SKU','Product','Model Name'],['Qty','Quantity','Sales','Units','Sellout Qty','Sales Qty'],['Area','Province','Territory'],['ASM','Manager','Sales Manager'],['Customer','Account','Dealer','Client'],['Channel','Store Type','Channel Type'],['PS ID','Promoter ID','Frontliner ID','PS','Promoter'],['PS Name','Promoter Name','Frontliner Name'],['Sales Amount','Sales Value','Amount'],['SR Hire Date','Hire Date'],['Customer Type'],['SR Role'],['Material Name'],['物料分组'],['Color']];
  const sourceKeys=file.headers||Object.keys(file.rows[0]||{}),lookup=Object.fromEntries(sourceKeys.filter(Boolean).map(k=>[k,k]));
  const columns=aliases.map(names=>find(lookup,...names));
  const rows=[];
