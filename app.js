@@ -121,9 +121,16 @@ async function restoreUploads(){try{state.uploads.fixed=await idbGet('fixed');st
 
 function find(obj,...names){ const keys=Object.keys(obj||{}), label=k=>String(k).replace(/^.*[^\x00-\x7F]/,'').trim().replace(/\s+/g,' ').toLowerCase(), aliases={'qty':['sell out'],'ps id':['sr code'],'ps name':['sr name'],'customer':['short name'],'asm':['sub region'],'area':['region']}; for(const name of names){const key=keys.find(k=>k.toLowerCase()===name.toLowerCase());if(key!==undefined && normalize(obj[key])!=='')return obj[key];} for(const name of names){for(const wanted of [name.toLowerCase(),...(aliases[name.toLowerCase()]||[])]){const key=keys.find(k=>label(k)===wanted);if(key!==undefined && normalize(obj[key])!=='')return obj[key];}} return ''; }
 function storeMap(){ return new Map((state.raw.stores||[]).map(s=>[find(s,'Store ID','StoreID','store_id','Store Code','Outlet ID'),s])); }
+function salesProductFields(row){
+ const code=normalize(find(row,'Model','SKU','Product','Model Name')),type=/^ACSR/i.test(code)?'AIOT':/^HP/i.test(code)?'SMARTPHONE':'Unclassified';
+ const name=normalize(find(row,'Material Name'));
+ const model=type==='AIOT'?(name.replace(/\s+(?:RM|TL)[A-Z0-9][\s\S]*$/i,'').trim()||code):code;
+ return {_modelCode:code,_productType:type,_model:model};
+}
+function productFilterOptions(){const rows=salesEnriched().filter(r=>r._productType===selected('productTypeFilter'));setOptions('modelFilter',uniq(rows.map(r=>r._model)),'models');if($('seriesFilter'))setOptions('seriesFilter',uniq(rows.map(r=>r._series)),'series');}
 function salesEnriched(){
   const sm=storeMap();
-  return (state.raw.sales||[]).map(r=>{ const sid=find(r,'Store ID','StoreID','store_id','Store Code','Outlet ID') || find(r,'Store Name','Store','Outlet','Shop'); const s=sm.get(sid)||{}; return {...r,_sid:sid,_date:parseDate(find(r,'Date','Sales Date','date','Sellout Date','Transaction Date')),_qty:n(find(r,'Qty','Quantity','Sales','Units','Sellout Qty','Sales Qty')),_model:find(r,'Model','SKU','Product','Model Name'),_area:find(r,'Area','Province','Territory')||find(s,'Area','Province','Territory'),_asm:find(r,'ASM','Manager','Sales Manager')||find(s,'ASM','Manager'),_customer:find(r,'Customer','Account','Dealer','Client')||find(s,'Customer','Account','Dealer'),_channel:find(r,'Customer Type')||'Unclassified',_store:find(r,'Store Name','Store','Outlet','Shop')||find(s,'Store Name','Store','Outlet'),_ps:find(r,'PS ID','Promoter ID','Frontliner ID','PS','Promoter')}; });
+  return (state.raw.sales||[]).map(r=>{ const sid=find(r,'Store ID','StoreID','store_id','Store Code','Outlet ID') || find(r,'Store Name','Store','Outlet','Shop'); const s=sm.get(sid)||{}; return {...r,_sid:sid,_date:parseDate(find(r,'Date','Sales Date','date','Sellout Date','Transaction Date')),_qty:n(find(r,'Qty','Quantity','Sales','Units','Sellout Qty','Sales Qty')),...salesProductFields(r),_area:find(r,'Area','Province','Territory')||find(s,'Area','Province','Territory'),_asm:find(r,'ASM','Manager','Sales Manager')||find(s,'ASM','Manager'),_customer:find(r,'Customer','Account','Dealer','Client')||find(s,'Customer','Account','Dealer'),_channel:find(r,'Customer Type')||'Unclassified',_store:find(r,'Store Name','Store','Outlet','Shop')||find(s,'Store Name','Store','Outlet'),_ps:find(r,'PS ID','Promoter ID','Frontliner ID','PS','Promoter')}; });
 }
 function selected(id){return $(id).value||'ALL'}
 function passes(v,sel){return sel==='ALL'||v===sel}
@@ -131,7 +138,7 @@ function filterData(){
   const month=selected('monthFilter'), area=selected('areaFilter'), asm=selected('asmFilter'), customer=selected('customerFilter'), channel=selected('channelFilter'), model=selected('modelFilter');
   state.filteredSales=salesEnriched().filter(r=>{
     const rm=!isNaN(r._date)?`${r._date.getFullYear()}-${String(r._date.getMonth()+1).padStart(2,'0')}`:'';
-    return passes(rm,month)&&passes(r._area,area)&&passes(r._asm,asm)&&passes(r._customer,customer)&&passes(r._channel,channel)&&passes(r._model,model);
+    return passes(r._productType,selected('productTypeFilter'))&&passes(rm,month)&&passes(r._area,area)&&passes(r._asm,asm)&&passes(r._customer,customer)&&passes(r._channel,channel)&&passes(r._model,model);
   });
 }
 function uniq(arr){return [...new Set(arr.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)))}
@@ -232,6 +239,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
   ['data','lineup','stores','inventory'].forEach(section=>{const tab=document.querySelector('.nav-item[data-section="'+section+'"]');if(tab){if(section==='inventory')tab.textContent='Inventory (soon)';secondaryNav.append(tab);}});
   $('pageTitle').textContent=document.querySelector('.nav-item.active')?.textContent.trim()||'Overview'; document.title=`${CFG.companyName||'realme WVIS'} Sales Dashboard`;
   document.querySelectorAll('.nav-item').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));btn.classList.add('active');$('pageTitle').textContent=btn.textContent.trim();document.querySelectorAll('.dashboard-section').forEach(x=>x.classList.remove('active'));$(`${btn.dataset.section}Section`).classList.add('active')}));
+  $('productTypeFilter').addEventListener('change',()=>{$('modelFilter').value='ALL';if($('seriesFilter'))$('seriesFilter').value='ALL';productFilterOptions();render();});
   ['monthFilter','areaFilter','asmFilter','customerFilter','channelFilter','modelFilter'].forEach(id=>$(id).addEventListener('change',render));
   $('fixedFile').addEventListener('change',e=>handleUpload('fixed',e.target.files[0])); $('currentFile').addEventListener('change',e=>handleUpload('current',e.target.files[0]));
   $('clearFixedBtn').addEventListener('click',()=>clearUpload('fixed')); $('clearCurrentBtn').addEventListener('click',()=>clearUpload('current'));

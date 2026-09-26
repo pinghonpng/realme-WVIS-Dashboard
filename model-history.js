@@ -35,7 +35,7 @@ function modelHistoryData(all,month,filters,groupKey='_model',measure=r=>r._qty)
 }
 function renderModelHistory(rows,bodyId='modelTableBody',groupKey='_model',entityLabel='Model',options={}){
   const month=selected('monthFilter');if(!/^\d{4}-\d{2}$/.test(month))return;
-  const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
+  const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_productType',selected('productTypeFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
   const currency=options.measure==='amount',isScore=options.measure==='score',format=currency?php:isScore?v=>fmt(v,2):fmt,measure=currency?r=>salesAmount(r)??0:isScore?r=>r._points??0:r=>r._qty;
   const history=modelHistoryData(options.all||salesEnriched(),month,[...filters,...(options.filters||[])],groupKey,measure),{months,buckets}=history;
   const past=[months[3],months[2],months[1]],table=$(bodyId).closest('table');
@@ -140,7 +140,7 @@ function renderFinancials(){
  $('aspNote').textContent=t.missingAmount?'Upload sales amounts to calculate ASP':'Sales Amount ÷ total units sold';
  const month=selected('monthFilter');if(!/^\d{4}-\d{2}$/.test(month)){$('lineupTableBody').innerHTML=emptyRow(7);return;}
  const previous=modelMonthOffset(month,-1);
- const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
+ const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_productType',selected('productTypeFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
  const labels=['Model','Smartphone Series',monthName(previous),monthName(month),'Total Units','Latest SRP','Price Date'];
  const table=$('lineupTableBody').closest('table');
  [...table.tHead.rows[0].cells].forEach((cell,i)=>{const button=cell.querySelector('.table-sort-button');if(button){button.setAttribute('aria-label','Sort by '+labels[i]);button.textContent=labels[i]+({'ascending':' ↑','descending':' ↓'}[cell.getAttribute('aria-sort')]||' ↕');}else cell.textContent=labels[i];});
@@ -163,7 +163,7 @@ const renderBeforeFinancials=render;render=()=>{renderBeforeFinancials();renderF
 
 // Filter history is personal to this page and resets when a new dataset loads.
 (()=>{
- const ids=['monthFilter','areaFilter','asmFilter','customerFilter','channelFilter','modelFilter','seriesFilter','priceRangeFilter'];
+ const ids=['monthFilter','productTypeFilter','areaFilter','asmFilter','customerFilter','channelFilter','modelFilter','seriesFilter','priceRangeFilter'];
  const bar=document.querySelector('.filters'),history=[];
  const read=()=>Object.fromEntries(ids.map(id=>[id,$(id).value]));
  let current=read();
@@ -172,11 +172,11 @@ const renderBeforeFinancials=render;render=()=>{renderBeforeFinancials();renderF
  bar.prepend(actions);
  const style=document.createElement('style');style.textContent='.filter-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:8px}.filter-actions .secondary-btn{margin:0;padding:7px 13px}.filter-actions button:disabled{opacity:.45;cursor:default}';document.head.appendChild(style);
  const same=(a,b)=>ids.every(id=>a[id]===b[id]);
- function controls(){$('undoFiltersBtn').disabled=!history.length;$('clearFiltersBtn').disabled=ids.slice(1).every(id=>$(id).value==='ALL');}
+ function controls(){$('undoFiltersBtn').disabled=!history.length;$('clearFiltersBtn').disabled=ids.slice(1).filter(id=>id!=='productTypeFilter').every(id=>$(id).value==='ALL');}
  function remember(next){if(same(current,next))return;history.push(current);if(history.length>100)history.shift();current=next;controls();}
- function apply(next){ids.forEach(id=>{$(id).value=next[id];});current=read();controls();render();}
- bar.addEventListener('change',event=>{if(ids.includes(event.target.id))remember(read());},true);
- $('clearFiltersBtn').addEventListener('click',()=>{const next={...read()};ids.slice(1).forEach(id=>next[id]='ALL');remember(next);apply(next);});
+ function apply(next){$('productTypeFilter').value=next.productTypeFilter;productFilterOptions();ids.forEach(id=>{$(id).value=next[id];});current=read();controls();render();}
+ bar.addEventListener('change',event=>{if(ids.includes(event.target.id)){const next=read();if(event.target.id==='productTypeFilter'){next.modelFilter='ALL';next.seriesFilter='ALL';}remember(next);}},true);
+ $('clearFiltersBtn').addEventListener('click',()=>{const next={...read()};ids.slice(1).filter(id=>id!=='productTypeFilter').forEach(id=>next[id]='ALL');remember(next);apply(next);});
  $('undoFiltersBtn').addEventListener('click',()=>{if(history.length)apply(history.pop());});
  const beforeBuildFilters=buildFilters;buildFilters=()=>{beforeBuildFilters();history.length=0;current=read();controls();};
  controls();
@@ -232,7 +232,7 @@ function overviewRequiredRate(units,target,remaining){return target==null?null:u
  }
  function update(){
   const month=selected('monthFilter');if(!/^\d{4}-\d{2}$/.test(month))return;
-  const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
+  const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_productType',selected('productTypeFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
   const p=overviewKpiPeriod(salesEnriched(),month,filters),c=p.current,b=p.prior,label=monthName(p.previous)+' 1–'+(p.priorEnd||'—');
   const amount=t=>t.missingAmount?null:t.amount,asp=t=>t.missingAmount||t.units<=0?null:t.amount/t.units,premium=t=>t.missingPrice?null:t.premiumUnits;
   const daily=p.cutoff?c.units/p.cutoff:null,priorDaily=p.priorEnd?b.units/p.priorEnd:null;
@@ -304,7 +304,7 @@ function entitySeriesReport(all,rows,month,measure='qty'){
  const date=d=>new Date(d*86400000).toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
  const ir=(current,previous)=>{if(current===null||previous===null||previous===0)return '<span class="missing">N/A</span>';const r=modelRate(current,previous);return '<span class="'+r.kind+'">'+({up:'▲',down:'▼',steady:'━'}[r.kind]||'')+' '+r.text+'</span>';};
  let detailButton=null,detailMeasure='qty';
- function showDetail(b){const all=salesEnriched(),month=selected('monthFilter'),filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
+ function showDetail(b){const all=salesEnriched(),month=selected('monthFilter'),filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_productType',selected('productTypeFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
   let mapped=all;if(b.dataset.entityDetail==='psSalesReviewBody')mapped=psSalesReviewData(all,window.evisRoster.getRoster(),{area:selected('areaFilter'),asm:selected('asmFilter'),customer:selected('customerFilter'),channel:selected('channelFilter')},storeMap()).all;
   const key=b.dataset.entityDetail==='dealerTableBody'?'_customer':'_reviewPs',rows=mapped.filter(r=>r[key]===b.dataset.entityKey&&filters.every(([k,v])=>passes(r[k],v))),report=entitySeriesReport(all,rows,month,detailMeasure),format=detailMeasure==='amount'?php:detailMeasure==='score'?v=>fmt(v,2):fmt,label=detailMeasure==='amount'?'Amount (₱)':detailMeasure==='score'?'Score':'QTY';
   dialog.innerHTML='<div class="entity-detail-head"><h2 id="entityDetailTitle">'+escapeHtml(b.textContent.trim())+'</h2><button type="button" class="secondary-btn" data-entity-close>Close</button></div>';
@@ -373,7 +373,7 @@ function effectiveRosterTotals(roster,kind,filters,all,onlyTop50=false){
 let effectiveDealerSnapshot=null;
 function renderEffectiveDealers(){
  const month=selected('monthFilter');if(!/^\d{4}-\d{2}$/.test(month))return;
- const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
+ const filters=[['_area',selected('areaFilter')],['_asm',selected('asmFilter')],['_customer',selected('customerFilter')],['_channel',selected('channelFilter')],['_productType',selected('productTypeFilter')],['_model',selected('modelFilter')],['_series',selected('seriesFilter')],['_priceRange',selected('priceRangeFilter')]];
  const report=effectiveDealerReport(salesEnriched(),month,filters,dealerSalesMeasure,top50DealersOnly);effectiveDealerSnapshot=report;
  const rosterTotals=effectiveRosterTotals(window.evisRoster?.getRoster(),dealerSalesMeasure,filters,salesEnriched(),top50DealersOnly);
  const dealerKey=v=>String(v||'').trim().replace(/\s+/g,' ').toLowerCase();

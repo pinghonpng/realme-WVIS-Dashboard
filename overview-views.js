@@ -48,7 +48,7 @@ function overviewMonthlyGrowth(all,filters,groupKey,names){
  return result;
 }
 let overviewTrendMode='monthly',overviewMixMode='series';
-function overviewNonMonthFilters(){return [['areaFilter','_area'],['asmFilter','_asm'],['customerFilter','_customer'],['channelFilter','_channel'],['modelFilter','_model'],['seriesFilter','_series'],['priceRangeFilter','_priceRange']].map(([id,key])=>[key,selected(id)]);}
+function overviewNonMonthFilters(){return [['areaFilter','_area'],['asmFilter','_asm'],['customerFilter','_customer'],['channelFilter','_channel'],['productTypeFilter','_productType'],['modelFilter','_model'],['seriesFilter','_series'],['priceRangeFilter','_priceRange']].map(([id,key])=>[key,selected(id)]);}
 function syncTrendMonthLock(){
  const canvas=$('salesTrendChart'),dialog=document.querySelector('dialog[open]');
  const canvases=[canvas,$('areaChart')];const locked=$('overviewSection').classList.contains('active')&&overviewTrendMode==='monthly'&&canvases.some(c=>!c.closest('[hidden]')&&(!dialog||dialog.contains(c)));

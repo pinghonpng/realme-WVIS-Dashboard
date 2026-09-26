@@ -39,12 +39,12 @@ function pushReport(all,roster,rangeName,view,filters,campaign){
   }else if(allocationReady)targets=campaign.column===2?pushWholeTargets(1191,pushWholeTargets(600,weights)):pushWholeTargets(campaign.total,weights);
  }
  const territoryMatch=r=>passes(r._area,filters.area)&&passes(r._asm,filters.asm)&&passes(r._customer,filters.customer)&&passes(r._channel,filters.channel);
- const productMatch=r=>passes(r._model,filters.model)&&passes(r._series,filters.series)&&passes(r._priceRange,filters.priceRange);
+ const productMatch=r=>passes(r._productType,filters.productType||'SMARTPHONE')&&passes(r._model,filters.model)&&passes(r._series,filters.series)&&passes(r._priceRange,filters.priceRange);
  const period=all.filter(r=>modelMonthKey(r._date)===filters.month&&r._date.getDate()>=campaign.start&&r._date.getDate()<=campaign.end);
  const sales=new Map();period.filter(r=>r._series===campaign.series&&territoryMatch(r)&&productMatch(r)).forEach(r=>sales.set(label(r),(sales.get(label(r))||0)+r._qty));
  const eligible=new Set([...all.filter(territoryMatch),...members.filter(territoryMatch)].map(label));
  if(filters.customer==='ALL'&&filters.channel==='ALL'&&(view==='area'||view==='subregion'))PUSH_TERRITORIES.filter(t=>passes(t[0],filters.area)&&passes(t[1],filters.asm)).forEach(t=>eligible.add(t[view==='area'?0:1]));
- const seriesVisible=passes(campaign.series,filters.series);
+ const seriesVisible=filters.productType!=='AIOT'&&passes(campaign.series,filters.series);
  const modelVisible=filters.model==='ALL'||all.some(r=>r._model===filters.model&&r._series===campaign.series);
  const groups=seriesVisible&&modelVisible?[...eligible].sort((a,b)=>a.localeCompare(b)).map(k=>({label:k,target:targets?(targets.get(k)??0):null,sales:period.length?(sales.get(k)||0):null,history:historySum.get(k)||0,headcount:headcounts.get(k)||0})):[];
  const total={label:'WVIS',target:groups.length&&groups.every(g=>g.target!==null)?groups.reduce((s,g)=>s+g.target,0):null,sales:groups.length&&period.length?groups.reduce((s,g)=>s+g.sales,0):null};
@@ -59,18 +59,18 @@ function pushTrends(all,filters,campaign,key){
  weeks.forEach(w=>w.available=covered(w.start,w.end));
  const complete=m=>{const [y,n]=m.split('-').map(Number);return covered(Date.UTC(y,n-1,1)/86400000,Date.UTC(y,n,0)/86400000);};
  const buckets=new Map(),blank=()=>({weeks:[0,0,0,0,0],months:{}});
- for(const r of all){if(r._series!==campaign.series||!['area','asm','customer','channel','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))continue;
+ for(const r of all){if(r._series!==campaign.series||!['area','asm','customer','channel','productType','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))continue;
  const label=r[key]||'Unassigned';if(!buckets.has(label))buckets.set(label,blank());const g=buckets.get(label),d=day(r._date),m=modelMonthKey(r._date);
  weeks.forEach((w,i)=>{if(d>=w.start&&d<=w.end)g.weeks[i]+=r._qty;});if(months.includes(m)||m===baseline)g.months[m]=(g.months[m]||0)+r._qty;}
  const sum=labels=>{const g=blank();labels.forEach(label=>{const v=buckets.get(label);if(v){v.weeks.forEach((q,i)=>g.weeks[i]+=q);Object.entries(v.months).forEach(([m,q])=>g.months[m]=(g.months[m]||0)+q);}});return g;};
  return {weeks,months,complete,sum};
 }
 function pushDistribution(all,roster,filters,campaign,view){
- if(!roster)return {groups:[],total:{label:'WVIS',headcount:0,counts:[0,0,0,0]}};
+ if(!roster||filters.productType==='AIOT')return {groups:[],total:{label:'WVIS',headcount:0,counts:[0,0,0,0]}};
  const key={area:'_area',subregion:'_asm',dealer:'_customer',channel:'_channel'}[view];
  const members=pushLatestPromoters(all.filter(r=>modelMonthKey(r._date)<=filters.month),roster).filter(r=>['area','asm','customer','channel'].every(k=>passes(r['_'+k],filters[k])));
  const mapped=psSalesReviewData(all,roster,{area:'ALL',asm:'ALL',customer:'ALL',channel:'ALL'},storeMap()).all,sales=new Map();
- mapped.forEach(r=>{if(modelMonthKey(r._date)!==filters.month||r._series!==campaign.series||!['area','asm','customer','channel','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))return;sales.set(r._reviewPs,(sales.get(r._reviewPs)||0)+r._qty);});
+ mapped.forEach(r=>{if(modelMonthKey(r._date)!==filters.month||r._series!==campaign.series||!['area','asm','customer','channel','productType','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))return;sales.set(r._reviewPs,(sales.get(r._reviewPs)||0)+r._qty);});
  const groups=new Map();if(passes(campaign.series,filters.series)&&(filters.model==='ALL'||all.some(r=>r._model===filters.model&&r._series===campaign.series)))members.forEach(m=>{const label=m[key]||'Unassigned';if(!groups.has(label))groups.set(label,{label,headcount:0,counts:[0,0,0,0]});const g=groups.get(label),q=Math.max(0,sales.get(m._ps)||0);g.headcount++;g.counts[Math.min(3,Math.floor(q))]++;});
  const list=[...groups.values()].sort((a,b)=>a.label.localeCompare(b.label)),total={label:'WVIS',headcount:0,counts:[0,0,0,0]};list.forEach(g=>{total.headcount+=g.headcount;g.counts.forEach((q,i)=>total.counts[i]+=q);});return {groups:list,total};
 }
@@ -86,7 +86,7 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
  const trendCell=(q,p)=>{const rate=modelRate(q,p),symbol={up:'▲',down:'▼',steady:'━',missing:''}[rate.kind];return '<td data-sort-value="'+(q??'')+'">'+(q===null?'—':fmt(q))+' <span class="model-rate '+rate.kind+'">('+symbol+' '+rate.text+')</span></td>';};
  function renderPushModels(){
   const all=salesEnriched(),roster=window.evisRoster?.getRoster(),range=window.evisPriceRanges?.getRanges().find(r=>normalize(r.name).replace(/[\s,]+/g,'').toLowerCase()==='morephp13000');
-  const view=$('pushView').value,filters=Object.fromEntries(['month','area','asm','customer','channel','model','series','priceRange'].map(k=>[k,selected(k+'Filter')]));
+  const view=$('pushView').value,filters=Object.fromEntries(['month','productType','area','asm','customer','channel','model','series','priceRange'].map(k=>[k,selected(k+'Filter')]));
   const warnings=[];if(filters.month!=='2026-09')warnings.push('Targets are supplied for September 2026 only.');if(!roster)warnings.push('Waiting for the active promoter list to allocate targets.');if(!range)warnings.push('Define the “more Php 13000” price range to allocate targets.');
   const row=(g,shortfall,summary=false)=>{const gap=summary?shortfall:g.target!==null&&g.sales!==null?Math.max(0,g.target-g.sales):null;const share=gap!==null&&shortfall!==null?(shortfall>0?gap/shortfall*100:0):null;return '<tr><td>'+escapeHtml(g.label)+'</td><td>'+ (g.target===null?'—':fmt(g.target))+'</td><td>'+(g.sales===null?'—':fmt(g.sales))+'</td><td>'+(g.target>0&&g.sales!==null?pct(g.sales/g.target*100):'—')+'</td><td data-sort-value="'+(gap??'')+'" title="Remaining units and share of total shortfall in the displayed rows; above-target sales do not offset other rows’ shortfalls.">'+(gap===null?'—':fmt(gap)+' ('+(share===null?'—':fmt(share,2)+'%')+')')+'</td></tr>';};
   PUSH_CAMPAIGNS.forEach((campaign,i)=>{
