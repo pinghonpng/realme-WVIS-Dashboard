@@ -131,8 +131,8 @@ function salesProductFields(row){
  return {_modelCode:code,_productType:type,_model:model};
 }
 function productFilterOptions(){
- const type=selected('productTypeFilter'),rows=salesEnriched().filter(r=>r._productType===type);
- const catalog=typeof scoreCatalog==='undefined'?[]:[...scoreCatalog.values()].filter(m=>(/^HP/i.test(m.model)?'SMARTPHONE':/^realme/i.test(m.series)?'realme AIOT':'TL AIOT (non-realme)')===type);
+ const type=selected('productTypeFilter'),rows=salesEnriched().filter(r=>passes(r._productType,type));
+ const catalog=typeof scoreCatalog==='undefined'?[]:[...scoreCatalog.values()].filter(m=>passes(/^HP/i.test(m.model)?'SMARTPHONE':/^realme/i.test(m.series)?'realme AIOT':'TL AIOT (non-realme)',type));
  setOptions('modelFilter',uniq([...catalog.map(m=>m.model),...rows.map(r=>r._model)]),'models');
  if($('seriesFilter'))setOptions('seriesFilter',uniq([...catalog.map(m=>m.series),...rows.map(r=>r._series)]),'series');
 }

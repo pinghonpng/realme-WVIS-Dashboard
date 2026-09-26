@@ -44,7 +44,7 @@ function pushReport(all,roster,rangeName,view,filters,campaign){
  const sales=new Map();period.filter(r=>r._series===campaign.series&&territoryMatch(r)&&productMatch(r)).forEach(r=>sales.set(label(r),(sales.get(label(r))||0)+r._qty));
  const eligible=new Set([...all.filter(territoryMatch),...members.filter(territoryMatch)].map(label));
  if(filters.customer==='ALL'&&filters.channel==='ALL'&&(view==='area'||view==='subregion'))PUSH_TERRITORIES.filter(t=>passes(t[0],filters.area)&&passes(t[1],filters.asm)).forEach(t=>eligible.add(t[view==='area'?0:1]));
- const seriesVisible=filters.productType==='SMARTPHONE'&&passes(campaign.series,filters.series);
+ const seriesVisible=['ALL','SMARTPHONE'].includes(filters.productType)&&passes(campaign.series,filters.series);
  const modelVisible=filters.model==='ALL'||all.some(r=>r._model===filters.model&&r._series===campaign.series);
  const groups=seriesVisible&&modelVisible?[...eligible].sort((a,b)=>a.localeCompare(b)).map(k=>({label:k,target:targets?(targets.get(k)??0):null,sales:period.length?(sales.get(k)||0):null,history:historySum.get(k)||0,headcount:headcounts.get(k)||0})):[];
  const total={label:'WVIS',target:groups.length&&groups.every(g=>g.target!==null)?groups.reduce((s,g)=>s+g.target,0):null,sales:groups.length&&period.length?groups.reduce((s,g)=>s+g.sales,0):null};
