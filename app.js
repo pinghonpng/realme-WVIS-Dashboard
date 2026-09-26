@@ -130,7 +130,12 @@ function salesProductFields(row){
  const model=type==='AIOT'?(unified||code):code;
  return {_modelCode:code,_productType:type,_model:model};
 }
-function productFilterOptions(){const rows=salesEnriched().filter(r=>r._productType===selected('productTypeFilter'));setOptions('modelFilter',uniq(rows.map(r=>r._model)),'models');if($('seriesFilter'))setOptions('seriesFilter',uniq(rows.map(r=>r._series)),'series');}
+function productFilterOptions(){
+ const type=selected('productTypeFilter'),rows=salesEnriched().filter(r=>r._productType===type);
+ const catalog=typeof scoreCatalog==='undefined'?[]:[...scoreCatalog.values()].filter(m=>(/^HP/i.test(m.model)?'SMARTPHONE':/^realme/i.test(m.series)?'realme AIOT':'TL AIOT (non-realme)')===type);
+ setOptions('modelFilter',uniq([...catalog.map(m=>m.model),...rows.map(r=>r._model)]),'models');
+ if($('seriesFilter'))setOptions('seriesFilter',uniq([...catalog.map(m=>m.series),...rows.map(r=>r._series)]),'series');
+}
 function salesEnriched(){
   const sm=storeMap();
   return (state.raw.sales||[]).map(r=>{ const sid=find(r,'Store ID','StoreID','store_id','Store Code','Outlet ID') || find(r,'Store Name','Store','Outlet','Shop'); const s=sm.get(sid)||{}; return {...r,_sid:sid,_date:parseDate(find(r,'Date','Sales Date','date','Sellout Date','Transaction Date')),_qty:n(find(r,'Qty','Quantity','Sales','Units','Sellout Qty','Sales Qty')),...salesProductFields(r),_area:find(r,'Area','Province','Territory')||find(s,'Area','Province','Territory'),_asm:find(r,'ASM','Manager','Sales Manager')||find(s,'ASM','Manager'),_customer:find(r,'Customer','Account','Dealer','Client')||find(s,'Customer','Account','Dealer'),_channel:find(r,'Customer Type')||'Unclassified',_store:find(r,'Store Name','Store','Outlet','Shop')||find(s,'Store Name','Store','Outlet'),_ps:find(r,'PS ID','Promoter ID','Frontliner ID','PS','Promoter')}; });
