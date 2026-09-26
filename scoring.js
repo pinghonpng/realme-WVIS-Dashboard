@@ -13,9 +13,9 @@ function validateScoreRows(rows){
     const series=normalize(find(row,'Series','Smartphone Series','Family','Smartphone Family','Classification'));
     const value=normalize(find(row,'Points per Unit','Score per Unit','Points','Score'));
     if(!model&&!value&&series.toUpperCase()==='ALL MODELS')return; // Workbook footer, not a scoring rule.
-    const points=Number(value.replace(/,/g,''));
-    if(!model||!series||value===''||!Number.isFinite(points)||points<0)
-      throw new Error(`Row ${index+2}: provide Model, Series and a non-negative Points per Unit number (zero is allowed).`);
+    const points=value===''?null:Number(value.replace(/,/g,''));
+    if(!model||!series||(points!==null&&(!Number.isFinite(points)||points<0)))
+      throw new Error(`Row ${index+2}: provide Model, Series and a non-negative Points per Unit number (blank means score not set).`);
     const key=modelKey(model);
     if(catalog.has(key))throw new Error(`Duplicate model: ${model}. Keep one row per model.`);
     if(series===UNMAPPED_SERIES||series==='ALL')throw new Error(`Row ${index+2}: please use a different series name.`);
@@ -25,10 +25,22 @@ function validateScoreRows(rows){
   return catalog;
 }
 
+function aiotSeriesMap(rows){
+ const result=new Map();for(const row of rows){const p=salesProductFields(row);if(p._productType!=='AIOT')continue;const key=modelKey(p._model);if(!result.has(key))result.set(key,{model:p._model,series:new Map()});const value=normalize(find(row,'物料分组'));if(value)result.get(key).series.set(modelKey(value),value);}
+ return result;
+}
+function aiotSeriesFile(rows,file){
+ const current=file?validateScoreRows(file.rows):new Map(),next=new Map(current);let changed=false;
+ for(const [key,item] of aiotSeriesMap(rows)){if(item.series.size!==1)continue;const series=[...item.series.values()][0],old=next.get(key);if(old?.series===series)continue;next.set(key,{model:old?.model||item.model,series,points:old?.points??null});changed=true;}
+ if(!changed)return null;
+ return {...(file||{name:'Model Scores and Series',headers:['Model','Series','Points per Unit']}),uploadedAt:new Date().toISOString(),rows:[...next.values()].map(m=>({Model:m.model,Series:m.series,'Points per Unit':m.points??''}))};
+}
 function addScoreFields(rows){
+  const seriesMap=aiotSeriesMap(rows);
   return rows.map(row=>{
     const match=scoreCatalog.get(modelKey(row._model));
-    return {...row,_series:match?.series||UNMAPPED_SERIES,_points:match?row._qty*match.points:null};
+    const names=seriesMap.get(modelKey(row._model))?.series;const series=row._productType==='AIOT'&&names?.size===1?[...names.values()][0]:match?.series;
+    return {...row,_series:series||UNMAPPED_SERIES,_points:match?.points!=null?row._qty*match.points:null};
   });
 }
 function scoreTotals(rows){
@@ -62,15 +74,17 @@ async function uploadScores(file){
 function renderScoreFile(){
   $('scoreMeta').textContent=scoreFile?`${scoreFile.name} · ${fmt(scoreCatalog.size)} models · ${uniq([...scoreCatalog.values()].map(m=>m.series)).length} series`:'No scoring file uploaded';
   let alert=$('aiotMappingAlert');if(!alert){alert=document.createElement('div');alert.id='aiotMappingAlert';alert.setAttribute('role','status');$('scoreMeta').after(alert);}
-  const missing=new Map();for(const r of salesEnriched()){if(r._productType!=='AIOT'||scoreCatalog.has(modelKey(r._model)))continue;const key=modelKey(r._model);if(!missing.has(key))missing.set(key,{name:r._model,codes:new Set()});missing.get(key).codes.add(r._modelCode);}
-  alert.innerHTML=missing.size?'<p><strong>'+missing.size+' AIOT models need a series and score mapping</strong></p><div class="table-wrap"><table><thead><tr><th>AIOT Model</th><th>Column H Codes</th></tr></thead><tbody>'+[...missing.values()].sort((a,b)=>a.name.localeCompare(b.name)).map(r=>'<tr><td>'+escapeHtml(r.name)+'</td><td>'+escapeHtml([...r.codes].sort().join(', '))+'</td></tr>').join('')+'</tbody></table></div>':'';
+  const all=salesEnriched(),seriesMap=aiotSeriesMap(all),missing=new Map();for(const r of all){if(r._productType!=='AIOT')continue;const key=modelKey(r._model),conflict=seriesMap.get(key)?.series.size>1;if(!conflict&&r._series!==UNMAPPED_SERIES&&r._points!==null)continue;if(!missing.has(key))missing.set(key,{name:r._model,codes:new Set(),issue:conflict?'Conflicting series: '+[...seriesMap.get(key).series.values()].join(' / '):r._series===UNMAPPED_SERIES?'Series missing':'Score not set'});missing.get(key).codes.add(r._modelCode);}
+  alert.innerHTML=missing.size?'<p><strong>'+missing.size+' AIOT models need review</strong></p><div class="table-wrap"><table><thead><tr><th>AIOT Model</th><th>Column H Codes</th><th>Review</th></tr></thead><tbody>'+[...missing.values()].sort((a,b)=>a.name.localeCompare(b.name)).map(r=>'<tr><td>'+escapeHtml(r.name)+'</td><td>'+escapeHtml([...r.codes].sort().join(', '))+'</td><td>'+escapeHtml(r.issue)+'</td></tr>').join('')+'</tbody></table></div>':'';
   const visibleModels=new Set(state.filteredSales.map(r=>modelKey(r._model)));
-  $('scoreCatalogBody').innerHTML=[...scoreCatalog.values()].filter(m=>visibleModels.has(modelKey(m.model))).map(m=>`<tr><td>${escapeHtml(m.model)}</td><td>${escapeHtml(m.series)}</td><td>${fmt(m.points,2)}</td></tr>`).join('')||emptyRow(3);
+  const derivedFile=aiotSeriesFile(all,scoreFile),displayCatalog=derivedFile?validateScoreRows(derivedFile.rows):scoreCatalog;
+  $('scoreCatalogBody').innerHTML=[...displayCatalog.values()].filter(m=>visibleModels.has(modelKey(m.model))).map(m=>`<tr><td>${escapeHtml(m.model)}</td><td>${escapeHtml(m.series)}</td><td>${m.points===null?'Not set':fmt(m.points,2)}</td></tr>`).join('')||emptyRow(3);
 }
 function downloadScoreTemplate(){
   const quote=value=>'"'+String(value).replace(/"/g,'""')+'"';
   const models=uniq(salesEnriched().map(row=>row._model));
-  const csv='\ufeffModel,Series,Points per Unit\r\n'+models.map(model=>`${quote(model)},,`).join('\r\n');
+  const resolved=aiotSeriesFile(state.raw.sales,scoreFile),catalog=resolved?validateScoreRows(resolved.rows):scoreCatalog;
+  const csv='\ufeffModel,Series,Points per Unit\r\n'+models.map(model=>{const m=catalog.get(modelKey(model));return `${quote(model)},${quote(m?.series||'')},${m?.points??''}`;}).join('\r\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
   const link=document.createElement('a');link.href=url;link.download='model-scoring-template.csv';link.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);

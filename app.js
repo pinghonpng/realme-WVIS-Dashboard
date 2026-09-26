@@ -124,7 +124,10 @@ function storeMap(){ return new Map((state.raw.stores||[]).map(s=>[find(s,'Store
 function salesProductFields(row){
  const code=normalize(find(row,'Model','SKU','Product','Model Name')),type=/^ACSR/i.test(code)?'AIOT':/^HP/i.test(code)?'SMARTPHONE':'Unclassified';
  const name=normalize(find(row,'Material Name'));
- const model=type==='AIOT'?(name.replace(/\s+(?:RM|TL)[A-Z0-9][\s\S]*$/i,'').trim()||code):code;
+ let unified=name.replace(/\s+(?:RM|TL|NXL|TD)[A-Z0-9][\s\S]*$/i,'').trim();
+ const color=normalize(find(row,'Color')),dash=unified.lastIndexOf('-'),suffix=dash>=0?unified.slice(dash+1).trim():'';
+ if(suffix&&((color&&!/^not applicable$/i.test(color)&&suffix.toLowerCase()===color.toLowerCase())||/^(?:white|black|blue|red|green|yellow|pink|purple|silver|gold|golden|gray|grey|orange|brown|cream|rosegold)$/i.test(suffix)))unified=unified.slice(0,dash).trim();
+ const model=type==='AIOT'?(unified||code):code;
  return {_modelCode:code,_productType:type,_model:model};
 }
 function productFilterOptions(){const rows=salesEnriched().filter(r=>r._productType===selected('productTypeFilter'));setOptions('modelFilter',uniq(rows.map(r=>r._model)),'models');if($('seriesFilter'))setOptions('seriesFilter',uniq(rows.map(r=>r._series)),'series');}
