@@ -155,7 +155,7 @@ const badge=document.createElement('p');badge.id='sharedBadge';badge.className='
 
 $('sharedLogout').addEventListener('click',async()=>{try{await request('/auth/v1/logout',{method:'POST'})}catch{}session=null;admin=false;controls();say('Signed out. Viewing shared data.');});
 handleUpload=async()=>{toast('Edit sales in the linked Google Sheet.',true);};
-uploadScores=async(file)=>{if(!file)return;try{await publish({scores:canonicalScores(await parseSalesFile(file))});$('scoreError').textContent='';}catch(error){$('scoreError').textContent=error.message;}finally{$('scoreFile').value='';}};
+uploadScores=async(file)=>{if(!file)return;try{await publish({scores:canonicalScores(await parseScoreFile(file))});$('scoreError').textContent='';}catch(error){$('scoreError').textContent=error.message;}finally{$('scoreFile').value='';}};
 clearUpload=async()=>{toast('Edit sales in the linked Google Sheet.',true);};
 restoreUploads=async()=>{await sync();return true;};refresh=sync;
 const previousScoreFile=renderScoreFile;renderScoreFile=()=>{previousScoreFile();controls();};
@@ -166,4 +166,3 @@ window.evisSaveRoster=async next=>{if(!admin)throw new Error('Administrator sign
 window.evisSaveModelEdit=async(entry,expected)=>{await publish({scores:canonicalScores(mergeModelScore(scoreFile,entry,expected))});};
 controls();
 })();
-

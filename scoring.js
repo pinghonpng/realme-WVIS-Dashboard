@@ -17,12 +17,33 @@ function validateScoreRows(rows){
     if(!model||!series||(points!==null&&(!Number.isFinite(points)||points<0)))
       throw new Error(`Row ${index+2}: provide Model, Series and a non-negative Points per Unit number (blank means score not set).`);
     const key=modelKey(model);
-    if(catalog.has(key))throw new Error(`Duplicate model: ${model}. Keep one row per model.`);
+    if(catalog.has(key)){
+      const existing=catalog.get(key);
+      if(modelKey(existing.series)===modelKey(series)&&existing.points===points)return;
+      throw new Error(`Conflicting duplicate model: ${model}. Its series or score differs between rows. Keep one agreed entry.`);
+    }
     if(series===UNMAPPED_SERIES||series==='ALL')throw new Error(`Row ${index+2}: please use a different series name.`);
     catalog.set(key,{model,series,points});
   });
   if(!catalog.size)throw new Error('No model scores found. Use columns Model, Series, Points per Unit.');
   return catalog;
+}
+
+function scoreRowsFromGrid(grid){
+ const aliases=[['model','smartphone model','model name','sku'],['series','smartphone series','family','smartphone family','classification'],['points per unit','score per unit','points','score']];
+ const headerIndex=grid.findIndex(row=>aliases.every(names=>row.some(cell=>names.includes(modelKey(cell)))));
+ if(headerIndex<0)throw new Error('Could not find the scoring headers. Use Model, Series, Points per Unit on one row. A title above them is allowed.');
+ const header=grid[headerIndex].map(modelKey),columns=aliases.map(names=>header.findIndex(cell=>names.includes(cell)));
+ const rows=grid.slice(headerIndex+1).filter(row=>row.some(cell=>normalize(cell)!=='')).map(row=>Object.fromEntries(['Model','Series','Points per Unit'].map((label,i)=>[label,normalize(row[columns[i]])])));
+ // Merge only identical rules; conflicting duplicates must be reviewed, never silently overwritten.
+ const catalog=validateScoreRows(rows);
+ return [...catalog.values()].map(m=>({Model:m.model,Series:m.series,'Points per Unit':m.points??''}));
+}
+async function parseScoreFile(file){
+ const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}),ws=wb.Sheets[wb.SheetNames[0]];
+ if(!ws)throw new Error('The workbook has no readable worksheet.');
+ const rows=scoreRowsFromGrid(XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false}));
+ return {name:file.name,size:file.size,uploadedAt:new Date().toISOString(),headers:['Model','Series','Points per Unit'],rows};
 }
 
 function aiotFixedRate(row){
@@ -76,7 +97,7 @@ async function uploadScores(file){
   if(!file)return;
   const input=$('scoreFile'); input.disabled=true;
   try{
-    const parsed=await parseSalesFile(file),catalog=validateScoreRows(parsed.rows);
+    const parsed=await parseScoreFile(file),catalog=validateScoreRows(parsed.rows);
     await idbSet('modelScores',parsed);
     scoreFile=parsed;scoreCatalog=catalog;
     $('scoreError').textContent='';
@@ -153,9 +174,14 @@ function renderScoreFile(){
   for(const [key,item] of display){if(!item.rates.size)item.rates.add(scoreCatalog.get(key).points);}
   $('scoreCatalogBody').innerHTML=[...display.values()].sort((a,b)=>a.model.localeCompare(b.model)).map(m=>`<tr><td>${escapeHtml(m.model)}</td><td>${escapeHtml(m.series)}</td><td>${[...m.rates].map(v=>v==null?'Not set':fmt(v,2)).join(' / ')}</td></tr>`).join('')||emptyRow(3);
 }
+function scoreTemplateModels(catalog,rows){
+ const models=new Map([...catalog].map(([key,m])=>[key,m.model]));
+ for(const row of rows){const name=normalize(row._model),key=modelKey(name);if(name&&!models.has(key))models.set(key,name);}
+ return [...models.values()].sort((a,b)=>a.localeCompare(b));
+}
 function downloadScoreTemplate(){
   const quote=value=>'"'+String(value).replace(/"/g,'""')+'"';
-  const models=uniq([...scoreCatalog.values()].map(m=>m.model).concat(salesEnriched().map(row=>row._model)));
+  const models=scoreTemplateModels(scoreCatalog,salesEnriched());
   const catalog=scoreCatalog;
   const csv='\ufeffModel,Series,Points per Unit\r\n'+models.map(model=>{const m=catalog.get(modelKey(model));return `${quote(model)},${quote(m?.series||'')},${m?.points??''}`;}).join('\r\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
@@ -215,4 +241,3 @@ restoreUploads=async()=>{
   return originalRestore();
 };
 mountScoring();
-
