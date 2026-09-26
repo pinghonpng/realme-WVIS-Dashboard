@@ -31,17 +31,41 @@ function aiotSeriesMap(rows){
 }
 function aiotSeriesFile(rows,file){
  const current=file?validateScoreRows(file.rows):new Map(),next=new Map(current);let changed=false;
- for(const [key,item] of aiotSeriesMap(rows)){if(item.series.size!==1)continue;const series=[...item.series.values()][0],old=next.get(key);if(old?.series===series)continue;next.set(key,{model:old?.model||item.model,series,points:old?.points??null});changed=true;}
+ for(const [key,item] of aiotSeriesMap(rows)){if(item.series.size!==1)continue;const series=[...item.series.values()][0],old=next.get(key);if(old)continue;next.set(key,{model:old?.model||item.model,series,points:old?.points??null});changed=true;}
  if(!changed)return null;
  return {...(file||{name:'Model Scores and Series',headers:['Model','Series','Points per Unit']}),uploadedAt:new Date().toISOString(),rows:[...next.values()].map(m=>({Model:m.model,Series:m.series,'Points per Unit':m.points??''}))};
 }
+function aiotFixedRate(row){
+ const name=modelKey(row._model).replace(/[“”]/g,'"'),raw=normalize(find(row,'Material Name'))+' '+normalize(row._modelCode),capacity=raw.match(/\(\s*(\d+)\s*\+\s*(\d+)\s*\)/),variant=capacity?capacity[1]+'+'+capacity[2]:'';
+ if(/^nexal pad$/.test(name))return 30;
+ if(/^realme pad 2(?:\s|$)/.test(name))return variant==='8+256'?15:variant==='6+128'?10:null;
+ if(['realme buds air 7','realme watch s2','realme watch 5'].includes(name))return 5;
+ if(/^techlife pad plus 2(?:\s|$)/.test(name)&&variant==='4+128')return 20;
+ if(/^techlife pad pro 12"(?:\s|$)/.test(name)&&variant==='8+256')return 15;
+ if(/^techlife pad mini(?:\s|$)/.test(name)&&variant==='4+64')return 15;
+ if(/^techlife pad plus 12"(?:\s*\([^)]*\))?$/.test(name))return 12;
+ if(/^techlife pad neo(?:\s|$)/.test(name))return ['8+256','4+128'].includes(variant)?10:variant==='4+64'?4:null;
+ if(/^techlife pad lite 8"$/.test(name))return 4;
+ return null;
+}
+function aiotPriceRate(srp,series){
+ if(!Number.isFinite(srp)||srp<0||!series||series===UNMAPPED_SERIES)return null;
+ return /^realme/i.test(series)?(srp<1000?.5:srp<2000?1:srp<4000?3:8):(srp<1000?2:srp<2000?3:srp<3000?5:10);
+}
 function addScoreFields(rows){
-  const seriesMap=aiotSeriesMap(rows);
-  return rows.map(row=>{
-    const match=scoreCatalog.get(modelKey(row._model));
-    const names=seriesMap.get(modelKey(row._model))?.series;const series=row._productType==='AIOT'&&names?.size===1?[...names.values()][0]:match?.series;
-    return {...row,_series:series||UNMAPPED_SERIES,_points:match?.points!=null?row._qty*match.points:null};
-  });
+ const seriesMap=aiotSeriesMap(rows),latest=new Map();
+ // Latest dated positive-unit sales, weighted by units when that date has several transactions.
+ for(const row of rows){if(!/^ACSR/i.test(row._modelCode||''))continue;const value=normalize(find(row,'Sales Amount','Sales Value','Amount')),amount=Number(value.replace(/(?:PHP|₱|,|\s)/gi,'')),date=row._date;
+  if(!value||!Number.isFinite(amount)||amount<0||!(row._qty>0)||!date||isNaN(date))continue;
+  const day=Date.UTC(date.getFullYear(),date.getMonth(),date.getDate()),key=modelKey(row._model),old=latest.get(key);
+  if(!old||day>old.day)latest.set(key,{day,amount,units:row._qty});else if(day===old.day){old.amount+=amount;old.units+=row._qty;}
+ }
+ return rows.map(row=>{
+  const key=modelKey(row._model),match=scoreCatalog.get(key),aiot=/^ACSR/i.test(row._modelCode||''),names=seriesMap.get(key)?.series;
+  const series=match?.series||(aiot&&names?.size===1?[...names.values()][0]:UNMAPPED_SERIES),price=latest.get(key),srp=price?price.amount/price.units:null;
+  const rate=aiot?(aiotFixedRate(row)??aiotPriceRate(srp,series)):match?.points??null;
+  return {...row,_series:series,_productType:aiot?(/^realme/i.test(series)?'realme AIOT':'TL AIOT (non-realme)'):row._productType,_scoreRate:rate,_latestScoreSrp:aiot?srp:null,_points:rate!==null?row._qty*rate:null};
+ });
 }
 function scoreTotals(rows){
   return rows.reduce((total,row)=>{
@@ -74,11 +98,11 @@ async function uploadScores(file){
 function renderScoreFile(){
   $('scoreMeta').textContent=scoreFile?`${scoreFile.name} · ${fmt(scoreCatalog.size)} models · ${uniq([...scoreCatalog.values()].map(m=>m.series)).length} series`:'No scoring file uploaded';
   let alert=$('aiotMappingAlert');if(!alert){alert=document.createElement('div');alert.id='aiotMappingAlert';alert.setAttribute('role','status');$('scoreMeta').after(alert);}
-  const all=salesEnriched(),seriesMap=aiotSeriesMap(all),missing=new Map();for(const r of all){if(r._productType!=='AIOT')continue;const key=modelKey(r._model),conflict=seriesMap.get(key)?.series.size>1;if(!conflict&&r._series!==UNMAPPED_SERIES&&r._points!==null)continue;if(!missing.has(key))missing.set(key,{name:r._model,codes:new Set(),issue:conflict?'Conflicting series: '+[...seriesMap.get(key).series.values()].join(' / '):r._series===UNMAPPED_SERIES?'Series missing':'Score not set'});missing.get(key).codes.add(r._modelCode);}
+  const all=salesEnriched(),seriesMap=aiotSeriesMap(all),missing=new Map();for(const r of all){if(!/^ACSR/i.test(r._modelCode||''))continue;const key=modelKey(r._model),conflict=!scoreCatalog.has(key)&&seriesMap.get(key)?.series.size>1;if(!conflict&&r._series!==UNMAPPED_SERIES&&r._points!==null)continue;if(!missing.has(key))missing.set(key,{name:r._model,codes:new Set(),issue:conflict?'Conflicting series: '+[...seriesMap.get(key).series.values()].join(' / '):r._series===UNMAPPED_SERIES?'Series missing':'Score not set'});missing.get(key).codes.add(r._modelCode);}
   alert.innerHTML=missing.size?'<p><strong>'+missing.size+' AIOT models need review</strong></p><div class="table-wrap"><table><thead><tr><th>AIOT Model</th><th>Column H Codes</th><th>Review</th></tr></thead><tbody>'+[...missing.values()].sort((a,b)=>a.name.localeCompare(b.name)).map(r=>'<tr><td>'+escapeHtml(r.name)+'</td><td>'+escapeHtml([...r.codes].sort().join(', '))+'</td><td>'+escapeHtml(r.issue)+'</td></tr>').join('')+'</tbody></table></div>':'';
   const visibleModels=new Set(state.filteredSales.map(r=>modelKey(r._model)));
-  const derivedFile=aiotSeriesFile(all,scoreFile),displayCatalog=derivedFile?validateScoreRows(derivedFile.rows):scoreCatalog;
-  $('scoreCatalogBody').innerHTML=[...displayCatalog.values()].filter(m=>visibleModels.has(modelKey(m.model))).map(m=>`<tr><td>${escapeHtml(m.model)}</td><td>${escapeHtml(m.series)}</td><td>${m.points===null?'Not set':fmt(m.points,2)}</td></tr>`).join('')||emptyRow(3);
+  const display=new Map();for(const row of all){const key=modelKey(row._model);if(!visibleModels.has(key))continue;if(!display.has(key))display.set(key,{model:row._model,series:row._series,rates:new Set()});display.get(key).rates.add(row._scoreRate);}
+  $('scoreCatalogBody').innerHTML=[...display.values()].sort((a,b)=>a.model.localeCompare(b.model)).map(m=>`<tr><td>${escapeHtml(m.model)}</td><td>${escapeHtml(m.series)}</td><td>${[...m.rates].map(v=>v==null?'Not set':fmt(v,2)).join(' / ')}</td></tr>`).join('')||emptyRow(3);
 }
 function downloadScoreTemplate(){
   const quote=value=>'"'+String(value).replace(/"/g,'""')+'"';
