@@ -86,11 +86,12 @@ function summarySum(rows,column){
  return {value:total,partial};
 }
 function refreshTableSummaries(){
- const sums={topStoresBody:[3],bottomStoresBody:[3],storeTableBody:[5,6],psTableBody:[4],lineupTableBody:[2,3,4],promoterScoreBody:[2,3,4,6],subregionScoreBody:[1,2,3],performanceareaBody:[1,2,4,5,6,7],performancesubregionBody:[1,2,4,5,6,7]};
+ const sums={topStoresBody:[3],bottomStoresBody:[3],storeTableBody:[5,6],psTableBody:[4],promoterScoreBody:[2,3,4,6],subregionScoreBody:[1,2,3],performanceareaBody:[1,2,4,5,6,7],performancesubregionBody:[1,2,4,5,6,7]};
  document.querySelectorAll('table').forEach(table=>{
   if(table.hasAttribute('data-no-sort')||!table.tHead||!table.tBodies.length)return;
   if(table.tFoot&&(table.tFoot.dataset.summary==='history'||!table.tFoot.hasAttribute('data-summary-auto')))return;
   const body=table.tBodies[0],id=body.id,columns=sortableTableHeaders(table).length;
+  if(id==='lineupTableBody'){if(table.tFoot?.hasAttribute('data-summary-auto'))table.tFoot.remove();return;}
   const rows=[...body.rows].filter(row=>row.cells.length===columns&&row.cells[0].colSpan===1);
   const values=Array(columns).fill('—');values[0]='WVIS';
   const totals=new Map();
