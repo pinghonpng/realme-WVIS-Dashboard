@@ -15,7 +15,7 @@ function productivityCategory(units,premium,target,premiumTarget){
  if(b>=1)return 'premiumOnly';
  return 'low';
 }
-function productivityReport(all,roster,month,view,target,premiumTarget,rangeName,productType='ALL'){
+function productivityReport(all,roster,month,view,target,premiumTarget,rangeName){
  const period=all.filter(r=>modelMonthKey(r._date)===month),cutoff=period.reduce((day,r)=>Math.max(day,productivityCalendarDay(r._date)??-Infinity),-Infinity);
  const start=productivityHireDay(month+'-01'),days=Number.isFinite(cutoff)&&start!==null?cutoff-start+1:0;
  const result={groups:[],days,cutoff,unknown:0,future:0,ready:days>0&&Number.isFinite(target)&&Number.isFinite(premiumTarget)&&target>0&&premiumTarget>0&&!!rangeName};if(!roster||!days)return result;
@@ -27,7 +27,7 @@ function productivityReport(all,roster,month,view,target,premiumTarget,rangeName
   const member=members.get(entry.key),hire=find(row,'SR Hire Date','Hire Date');
   if(date>=member.assignmentDay){member.channel=row._channel||'Unassigned';member.assignmentDay=date;}
   if(normalize(hire)!==''&&date>=member.hireRecord){member.hire=productivityHireDay(hire);member.hireRecord=date;}
-  if(date>=start&&passes(row._productType,productType)){member.units+=row._qty;if(rangeName&&row._priceRange===rangeName)member.premium+=row._qty;}
+  if(date>=start){member.units+=row._qty;if(rangeName&&row._priceRange===rangeName)member.premium+=row._qty;}
  }
  const groups=new Map();
  for(const member of members.values()){
@@ -57,7 +57,7 @@ function productivityTotal(groups){
   monthSelect.value=months.includes(previous)?previous:months[0]||'';const month=monthSelect.value;if(month!==loadedMonth)loadTargets(month);
   const roster=window.evisRoster?.getRoster(),ranges=window.evisPriceRanges?.getRanges()||[],range=ranges.find(r=>normalize(r.name).replace(/[\s,]+/g,'').toLowerCase()==='morephp13000');
   const target=Number($('productivityTarget').value),premium=Number($('productivityPremiumTarget').value),view=$('productivityView').value;
-  const report=productivityReport(all,roster,month,view,target,premium,range?.name,selected('productTypeFilter'));
+  const report=productivityReport(all,roster,month,view,target,premium,range?.name);
   $('productivityPeriod').textContent=report.days?'Reporting period: '+monthName(month)+' 1–'+report.days+'. Hire-date tenure is measured at this cutoff.':'No sales dates available for the selected month.';
   const notices=[];if(!roster)notices.push('Waiting for the active HR roster.');if(!(target>0&&premium>0))notices.push('Enter both period targets to calculate performance categories.');if(!range)notices.push('Define the price range “more Php 13000” in Smartphone Line-up to calculate the second target.');if(report.unknown)notices.push(fmt(report.unknown)+' active promoters excluded: missing or invalid hire date.');if(report.future)notices.push(fmt(report.future)+' active promoters excluded: hire date after the reporting cutoff.');$('productivityNotice').textContent=notices.join(' ');
   const label={area:'Area',subregion:'Area / Subregion',dealer:'Dealer',channel:'Customer Type'}[view];

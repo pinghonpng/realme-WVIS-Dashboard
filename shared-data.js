@@ -118,6 +118,7 @@ async function sync(){
   clearError();salesSourceStatus();
  }catch(error){sheetFailure=error.message;if(manifest)salesSourceStatus();else{say('Could not load dashboard data: '+error.message);$('connectionText').textContent='Data unavailable';$('googleSalesStatus').textContent='Could not load Google Sheet sales. '+error.message;}showError(error.message);}
  finally{loading=false;controls();}
+ if(admin&&!sheetFailure&&manifest){const nextScores=aiotSeriesFile(state.raw.sales,scoreFile);if(nextScores)try{await publish({scores:nextScores});}catch(error){$('scoreError').textContent='AIOT series sync: '+error.message;}}
 }
 async function uploadBlob(file){
  const blob=await new Response(new Blob([JSON.stringify(file)]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
