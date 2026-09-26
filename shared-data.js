@@ -47,6 +47,7 @@ async function download(meta){
  const file=JSON.parse(text);cache.set(meta.path,file);return file;
 }
 function controls(){
+ document.querySelectorAll('[data-model-edit]').forEach(el=>el.disabled=!admin||busy);
  window.evisRoster?.setAdmin(admin&&!busy);window.evisPriceRanges?.setAdmin(admin&&!busy);
  ['fixedFile','currentFile','scoreFile','clearFixedBtn','clearCurrentBtn'].forEach(id=>{if($(id))$(id).disabled=!admin||busy;});
  $('sharedLogin').hidden=true;$('sharedLogout').hidden=true;$('sharedAdmin').textContent=admin?'Administrator: lucasngrealme@gmail.com':'Viewer · shared data';
@@ -118,7 +119,6 @@ async function sync(){
   clearError();salesSourceStatus();
  }catch(error){sheetFailure=error.message;if(manifest)salesSourceStatus();else{say('Could not load dashboard data: '+error.message);$('connectionText').textContent='Data unavailable';$('googleSalesStatus').textContent='Could not load Google Sheet sales. '+error.message;}showError(error.message);}
  finally{loading=false;controls();}
- if(admin&&!sheetFailure&&manifest){const nextScores=aiotSeriesFile(state.raw.sales,scoreFile);if(nextScores)try{await publish({scores:nextScores});}catch(error){$('scoreError').textContent='AIOT series sync: '+error.message;}}
 }
 async function uploadBlob(file){
  const blob=await new Response(new Blob([JSON.stringify(file)]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
@@ -163,6 +163,7 @@ setInterval(()=>{if(document.visibilityState==='visible')sync();},60000);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')sync();});
 window.evisSavePriceRanges=async ranges=>{if(!admin)throw new Error('Administrator sign-in is required.');if(busy||loading||!manifest)throw new Error('Wait for the current update to finish.');busy=true;controls();try{await request('/rest/v1/rpc/evis_set_price_ranges',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ranges,expected_version:manifest.version})});}finally{busy=false;controls();}await sync();if(JSON.stringify(validatePriceRanges(manifest?.files.priceRanges||[]))!==JSON.stringify(ranges))throw new Error('Saved ranges could not be reloaded. Refresh data to verify.');};
 window.evisSaveRoster=async next=>{if(!admin)throw new Error('Administrator sign-in is required.');if(busy||loading||!manifest)throw new Error('Wait for the current update to finish.');busy=true;controls();try{await request('/rest/v1/rpc/evis_set_roster',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sheet_url:next.url,sheet_tab:next.tab,expected_version:manifest.version})});}finally{busy=false;controls();}await sync();};
+window.evisSaveModelEdit=async(entry,expected)=>{await publish({scores:canonicalScores(mergeModelScore(scoreFile,entry,expected))});};
 controls();
 })();
 

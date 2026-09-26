@@ -25,16 +25,6 @@ function validateScoreRows(rows){
   return catalog;
 }
 
-function aiotSeriesMap(rows){
- const result=new Map();for(const row of rows){const p=salesProductFields(row);if(p._productType!=='AIOT')continue;const key=modelKey(p._model);if(!result.has(key))result.set(key,{model:p._model,series:new Map()});const value=normalize(find(row,'物料分组'));if(value)result.get(key).series.set(modelKey(value),value);}
- return result;
-}
-function aiotSeriesFile(rows,file){
- const current=file?validateScoreRows(file.rows):new Map(),next=new Map(current);let changed=false;
- for(const [key,item] of aiotSeriesMap(rows)){if(item.series.size!==1)continue;const series=[...item.series.values()][0],old=next.get(key);if(old)continue;next.set(key,{model:old?.model||item.model,series,points:old?.points??null});changed=true;}
- if(!changed)return null;
- return {...(file||{name:'Model Scores and Series',headers:['Model','Series','Points per Unit']}),uploadedAt:new Date().toISOString(),rows:[...next.values()].map(m=>({Model:m.model,Series:m.series,'Points per Unit':m.points??''}))};
-}
 function aiotFixedRate(row){
  const name=modelKey(row._model).replace(/[“”]/g,'"'),raw=normalize(find(row,'Material Name'))+' '+normalize(row._modelCode),capacity=raw.match(/\(\s*(\d+)\s*\+\s*(\d+)\s*\)/),variant=capacity?capacity[1]+'+'+capacity[2]:'';
  if(/^nexal pad$/.test(name))return 30;
@@ -53,7 +43,7 @@ function aiotPriceRate(srp,series){
  return /^realme/i.test(series)?(srp<1000?.5:srp<2000?1:srp<4000?3:8):(srp<1000?2:srp<2000?3:srp<3000?5:10);
 }
 function addScoreFields(rows){
- const seriesMap=aiotSeriesMap(rows),latest=new Map();
+ const latest=new Map();
  // Latest dated positive-unit sales, weighted by units when that date has several transactions.
  for(const row of rows){if(!/^ACSR/i.test(row._modelCode||''))continue;const value=normalize(find(row,'Sales Amount','Sales Value','Amount')),amount=Number(value.replace(/(?:PHP|₱|,|\s)/gi,'')),date=row._date;
   if(!value||!Number.isFinite(amount)||amount<0||!(row._qty>0)||!date||isNaN(date))continue;
@@ -61,9 +51,9 @@ function addScoreFields(rows){
   if(!old||day>old.day)latest.set(key,{day,amount,units:row._qty});else if(day===old.day){old.amount+=amount;old.units+=row._qty;}
  }
  return rows.map(row=>{
-  const key=modelKey(row._model),match=scoreCatalog.get(key),aiot=/^ACSR/i.test(row._modelCode||''),names=seriesMap.get(key)?.series;
-  const series=match?.series||(aiot&&names?.size===1?[...names.values()][0]:UNMAPPED_SERIES),price=latest.get(key),srp=price?price.amount/price.units:null;
-  const rate=aiot?(aiotFixedRate(row)??aiotPriceRate(srp,series)):match?.points??null;
+  const key=modelKey(row._model),match=scoreCatalog.get(key),aiot=/^ACSR/i.test(row._modelCode||'');
+  const series=match?.series||UNMAPPED_SERIES,price=latest.get(key),srp=price?price.amount/price.units:null;
+  const rate=match?.points??null; // Published scores are authoritative, including monthly replacements.
   return {...row,_series:series,_productType:aiot?(/^realme/i.test(series)?'realme AIOT':'TL AIOT (non-realme)'):row._productType,_scoreRate:rate,_latestScoreSrp:aiot?srp:null,_points:rate!==null?row._qty*rate:null};
  });
 }
@@ -95,11 +85,68 @@ async function uploadScores(file){
   }catch(error){$('scoreError').textContent=error.message;}
   finally{input.disabled=false;input.value='';}
 }
+// Keep drafts when filters or the automatic data refresh rerender the dashboard.
+const modelReviewDrafts=new Map();
+function modelReviewItems(rows){
+ const groups=new Map();
+ for(const row of rows){const key=modelKey(row._model);if(!key)continue;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row);}
+ for(const [key,m] of scoreCatalog)if(m.points===null&&!groups.has(key))groups.set(key,[]);
+ return [...groups].filter(([key])=>!scoreCatalog.has(key)||scoreCatalog.get(key).points===null).map(([key,items])=>{
+  const existing=scoreCatalog.get(key),model=existing?.model||items[0]._model;
+  const fixed=new Set(items.map(aiotFixedRate).filter(n=>n!==null));
+  return {key,model,existing,codes:uniq(items.map(r=>r._modelCode).filter(Boolean)),srp:items.find(r=>r._latestScoreSrp!==null)?._latestScoreSrp??null,fixed:fixed.size===1?[...fixed][0]:null,conflict:fixed.size>1};
+ }).sort((a,b)=>a.model.localeCompare(b.model));
+}
+function modelReviewSuggestion(item,series){
+ if(item.conflict)return {points:null,basis:'Different memory variants have different scores. Review manually.'};
+ if(item.fixed!==null)return {points:item.fixed,basis:'Agreed model-specific score'};
+ if(!item.codes.some(c=>/^ACSR/i.test(c)))return {points:null,basis:'Enter the approved smartphone score.'};
+ const points=aiotPriceRate(item.srp,series);
+ return {points,basis:points===null?'Choose a series and check that a latest price is available.':(/^realme/i.test(series)?'realme':'TechLife / non-realme')+' SRP band · latest sales unit price ₱'+fmt(item.srp,2)};
+}
+function renderModelReview(host,rows){
+ const items=modelReviewItems(rows),signature=JSON.stringify(items);
+ if(host.dataset.signature===signature)return;
+ host.dataset.signature=signature;
+ const opened=host.querySelector('details')?.open;
+ host.innerHTML='<details'+(opened?' open':'')+'><summary><strong>Models needing review ('+items.length+')</strong></summary><p class="score-note">Confirm additions here, or upload a replacement scoring file above for monthly changes. Only confirmed scores are used. Series come from the Models & Series source. Suggested SRP scores use the latest available sales amount per unit.</p><datalist id="reviewSeriesOptions">'+uniq([...scoreCatalog.values()].map(m=>m.series)).map(v=>'<option value="'+escapeHtml(v)+'"></option>').join('')+'</datalist><div class="table-wrap"><table data-no-sort><thead><tr><th>Model / codes</th><th>Series</th><th>Points per unit</th><th>Suggestion basis</th><th>Save</th></tr></thead><tbody></tbody></table></div><p class="score-note" role="status" id="modelReviewStatus"></p></details>';
+ const body=host.querySelector('tbody');
+ if(!items.length){body.innerHTML='<tr><td colspan="5">All sales models have a series and score.</td></tr>';return;}
+ for(const item of items){
+  let draft=modelReviewDrafts.get(item.key);
+  if(!draft){const series=item.existing?.series||'',suggestion=modelReviewSuggestion(item,series);draft={series,points:suggestion.points??'',manual:false};modelReviewDrafts.set(item.key,draft);}
+  const tr=document.createElement('tr');
+  tr.innerHTML='<td>'+escapeHtml(item.model)+'<div class="score-note">'+escapeHtml(item.codes.join(', '))+'</div></td><td><input data-model-edit list="reviewSeriesOptions" aria-label="Series for '+escapeHtml(item.model)+'"></td><td><input data-model-edit type="number" min="0" step="any" aria-label="Points for '+escapeHtml(item.model)+'"></td><td class="review-basis"></td><td><button data-model-edit class="secondary-btn">Confirm & save</button></td>';
+  const [series,points]=tr.querySelectorAll('input'),button=tr.querySelector('button'),basis=tr.querySelector('.review-basis');
+  series.value=draft.series;points.value=draft.points;
+  basis.textContent=modelReviewSuggestion(item,draft.series).basis;
+  series.addEventListener('input',()=>{draft.series=series.value;const suggested=modelReviewSuggestion(item,draft.series);basis.textContent=suggested.basis;if(!draft.manual){draft.points=suggested.points??'';points.value=draft.points;}});
+  points.addEventListener('input',()=>{draft.points=points.value;draft.manual=true;});
+  button.addEventListener('click',async()=>{
+   const status=$('modelReviewStatus');
+   try{
+    if(!normalize(series.value)||points.value===''||!Number.isFinite(Number(points.value))||Number(points.value)<0)throw new Error('Enter a series and a non-negative score before confirming.');
+    button.disabled=true;status.textContent='Saving '+item.model+'…';
+    await window.evisSaveModelEdit({model:item.model,series:normalize(series.value),points:Number(points.value)},item.existing||null);
+    modelReviewDrafts.delete(item.key);$('modelReviewStatus').textContent=item.model+' saved to the shared scoring source.';
+   }catch(error){status.textContent=error.message;button.disabled=window.dashboardAccount?.role!=='admin';}
+  });
+  body.append(tr);
+ }
+ host.querySelectorAll('[data-model-edit]').forEach(el=>el.disabled=window.dashboardAccount?.role!=='admin');
+}
+function mergeModelScore(file,entry,expected){
+ const catalog=file?validateScoreRows(file.rows):new Map(),key=modelKey(entry.model),current=catalog.get(key)||null;
+ if(JSON.stringify(current)!==JSON.stringify(expected))throw new Error('This model changed since you opened it. Refresh and review the latest values.');
+ validateScoreRows([{Model:entry.model,Series:entry.series,'Points per Unit':entry.points}]);
+ catalog.set(key,entry);
+ return {...(file||{name:'Model Scores & Series.csv'}),uploadedAt:new Date().toISOString(),headers:['Model','Series','Points per Unit'],rows:[...catalog.values()].map(m=>({Model:m.model,Series:m.series,'Points per Unit':m.points??''}))};
+}
 function renderScoreFile(){
   $('scoreMeta').textContent=scoreFile?`${scoreFile.name} · ${fmt(scoreCatalog.size)} models · ${uniq([...scoreCatalog.values()].map(m=>m.series)).length} series`:'No scoring file uploaded';
   let alert=$('aiotMappingAlert');if(!alert){alert=document.createElement('div');alert.id='aiotMappingAlert';alert.setAttribute('role','status');$('scoreMeta').after(alert);}
-  const all=salesEnriched(),seriesMap=aiotSeriesMap(all),missing=new Map();for(const r of all){if(!/^ACSR/i.test(r._modelCode||''))continue;const key=modelKey(r._model),conflict=!scoreCatalog.has(key)&&seriesMap.get(key)?.series.size>1;if(!conflict&&r._series!==UNMAPPED_SERIES&&r._points!==null)continue;if(!missing.has(key))missing.set(key,{name:r._model,codes:new Set(),issue:conflict?'Conflicting series: '+[...seriesMap.get(key).series.values()].join(' / '):r._series===UNMAPPED_SERIES?'Series missing':'Score not set'});missing.get(key).codes.add(r._modelCode);}
-  alert.innerHTML=missing.size?'<p><strong>'+missing.size+' AIOT models need review</strong></p><div class="table-wrap"><table><thead><tr><th>AIOT Model</th><th>Column H Codes</th><th>Review</th></tr></thead><tbody>'+[...missing.values()].sort((a,b)=>a.name.localeCompare(b.name)).map(r=>'<tr><td>'+escapeHtml(r.name)+'</td><td>'+escapeHtml([...r.codes].sort().join(', '))+'</td><td>'+escapeHtml(r.issue)+'</td></tr>').join('')+'</tbody></table></div>':'';
+  const all=salesEnriched();
+  renderModelReview(alert,all);
   // This is the complete reference catalog, independent of transaction filters.
   const display=new Map([...scoreCatalog].map(([key,m])=>[key,{model:m.model,series:m.series,rates:new Set()}]));
   for(const row of all){const item=display.get(modelKey(row._model));if(item)item.rates.add(row._scoreRate);}
@@ -109,7 +156,7 @@ function renderScoreFile(){
 function downloadScoreTemplate(){
   const quote=value=>'"'+String(value).replace(/"/g,'""')+'"';
   const models=uniq([...scoreCatalog.values()].map(m=>m.model).concat(salesEnriched().map(row=>row._model)));
-  const resolved=aiotSeriesFile(state.raw.sales,scoreFile),catalog=resolved?validateScoreRows(resolved.rows):scoreCatalog;
+  const catalog=scoreCatalog;
   const csv='\ufeffModel,Series,Points per Unit\r\n'+models.map(model=>{const m=catalog.get(modelKey(model));return `${quote(model)},${quote(m?.series||'')},${m?.points??''}`;}).join('\r\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
   const link=document.createElement('a');link.href=url;link.download='model-scoring-template.csv';link.click();
@@ -137,7 +184,7 @@ function renderScores(rows){
 
 function mountScoring(){
   const style=document.createElement('style');
-  style.textContent='.filters{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}.score-note{font-size:12px;line-height:1.6;margin:10px 0;overflow-wrap:anywhere}.score-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.score-upload{margin-bottom:14px}.score-upload input{max-width:100%;margin:14px 0}.score-summary{margin-top:18px}';
+  style.textContent='.filters{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}.score-note{font-size:12px;line-height:1.6;margin:10px 0;overflow-wrap:anywhere}.score-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.score-upload{margin-bottom:14px}.score-upload input{max-width:100%;margin:14px 0}.score-summary{margin-top:18px}#aiotMappingAlert{margin:16px 0}#aiotMappingAlert input{padding:9px;max-width:240px;width:100%;color:inherit;background:var(--card-bg,transparent);border:1px solid #8994a5;border-radius:6px}#aiotMappingAlert input[type=number]{max-width:120px}#aiotMappingAlert summary{cursor:pointer}';
   document.head.appendChild(style);
   document.querySelector('.filters').insertAdjacentHTML('beforeend','<div class="filter-group"><label for="seriesFilter">Series</label><select id="seriesFilter"><option value="ALL">All series</option></select></div>');
   $('seriesFilter').addEventListener('change',()=>render());
