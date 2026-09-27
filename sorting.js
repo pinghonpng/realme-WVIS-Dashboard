@@ -164,7 +164,7 @@ function keepNumericCellsOnOneLine(){
  document.querySelectorAll('table tbody :is(td,th),table tfoot :is(td,th)').forEach(cell=>cell.classList.toggle('numeric-nowrap',isNumericDisplay(cell.textContent)));
 }
 const numericCellStyle=document.createElement('style');
-numericCellStyle.textContent='table :is(td,th).numeric-nowrap,table .numeric-nowrap :is(button,span,strong){white-space:nowrap!important;overflow-wrap:normal!important;word-break:normal!important}.table-wrap{overflow-x:auto}';
+numericCellStyle.textContent='table :is(tbody,tfoot) :is(td,th):not(.numeric-nowrap),table :is(tbody,tfoot) :is(td,th):not(.numeric-nowrap) :is(a,button,span,strong,small){white-space:normal!important;overflow-wrap:anywhere;word-break:normal}table :is(td,th).numeric-nowrap,table .numeric-nowrap :is(button,span,strong){white-space:nowrap!important;overflow-wrap:normal!important;word-break:normal!important}.table-wrap{overflow-x:auto}';
 document.head.appendChild(numericCellStyle);
 function highlightTopFiveDealerCells(){
  keepNumericCellsOnOneLine();
