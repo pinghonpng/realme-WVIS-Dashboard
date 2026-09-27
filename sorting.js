@@ -155,7 +155,19 @@ function coverInactiveCustomerTypes(){
 const inactiveCustomerStyle=document.createElement('style');inactiveCustomerStyle.textContent='table tbody tr.inactive-customer-cover,table tbody tr.inactive-customer-cover>*,table tbody tr.inactive-customer-cover>* *{background:#000!important;color:#000!important;border-color:#000!important;text-shadow:none!important}';document.head.appendChild(inactiveCustomerStyle);
 
 // Highlight the fixed Top 5 dealer names wherever tables are rendered, including dialogs.
+function isNumericDisplay(value){
+ const text=value.trim();if(!text)return false;
+ const stripped=text.replace(/\b(?:N\/A|New|PHP)\b/gi,'').replace(/[₱%▲▼━—–+−,().*\s-]/g,'');
+ return /\d/.test(text)&&/^\d*$/.test(stripped)||/^(?:N\/A|—|–|-)$/i.test(text);
+}
+function keepNumericCellsOnOneLine(){
+ document.querySelectorAll('table tbody :is(td,th),table tfoot :is(td,th)').forEach(cell=>cell.classList.toggle('numeric-nowrap',isNumericDisplay(cell.textContent)));
+}
+const numericCellStyle=document.createElement('style');
+numericCellStyle.textContent='table :is(td,th).numeric-nowrap,table .numeric-nowrap :is(button,span,strong){white-space:nowrap!important;overflow-wrap:normal!important;word-break:normal!important}.table-wrap{overflow-x:auto}';
+document.head.appendChild(numericCellStyle);
 function highlightTopFiveDealerCells(){
+ keepNumericCellsOnOneLine();
  const names=new Set(['RULLS CELLPHONES','Cellcom Word Communications','GALLEON ENTERPRISES','PLAY TELECOM','D Cell City'].map(name=>name.toLowerCase()));
  document.querySelectorAll('table tbody td,table tbody th').forEach(cell=>{
   const name=cell.textContent.trim().replace(/\s+/g,' ').toLowerCase();
