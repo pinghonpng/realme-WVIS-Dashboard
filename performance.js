@@ -107,7 +107,6 @@ function performanceHireDates(all,roster,cutoff){
 function performanceWeeklyIR(current,previous,available){
  if(!scoreFile||!available||current.missing||previous.missing||previous.points===0)return '<span class="missing">N/A</span>';
  const rate=modelRate(current.points,previous.points);
- rate.kind=current.points>previous.points?'up':current.points<previous.points?'down':'steady';
  return '<span class="'+rate.kind+'">'+({up:'▲',down:'▼',steady:'━'}[rate.kind]||'')+' '+rate.text+'</span>';
 }
 // Drilldowns use the same grouped, filtered promoters and status calculation as each cell.
