@@ -19,15 +19,33 @@ function territoryPerformance(rows,key,period){
     const total=scoreTotals(assigned),all=scoreTotals(items);
     const counts={passed:0,onpace:0,low:0,pending:0};
     promoters.forEach(g=>counts[performanceStatus(g,period)]++);
-    return {label,headcount:promoters.length,...counts,...all,average:promoters.length?total.points/promoters.length:null,averageMissing:total.missing,unassigned:items.length-assigned.length};
+    return {label,promoters,headcount:promoters.length,...counts,...all,average:promoters.length?total.points/promoters.length:null,averageMissing:total.missing,unassigned:items.length-assigned.length};
   }).sort((a,b)=>a.label.localeCompare(b.label));
 }
+let performanceDrilldowns=[];
+const performanceLabels={passed:'Target reached',onpace:'On-Pace',low:'Low performance',pending:'Incomplete / Awaiting scores'};
+function performanceCell(value,promoters,label,status,period){
+ const people=status?promoters.filter(g=>performanceStatus(g,period)===status):promoters;
+ const index=performanceDrilldowns.push({people,label,status,period})-1;
+ return '<button type="button" class="performance-drilldown" data-performance-drilldown="'+index+'" aria-label="'+escapeHtml('Show promoters: '+label+' · '+(performanceLabels[status]||'All promoters'))+'">'+value+'</button>';
+}
 function renderTerritoryPerformance(rows){
+  performanceDrilldowns=[];
   $('psTargetKpi').textContent=fmt(PS_SCORE_TARGET,2);
   const period=performancePeriod(salesEnriched(),selected('monthFilter'));
   ['area','subregion'].forEach(kind=>{
     const groups=territoryPerformance(rows,kind==='area'?'_area':'_asm',period);
-    $('performance'+kind+'Body').innerHTML=groups.map(g=>`<tr><td>${escapeHtml(g.label)}</td><td>${fmt(g.headcount)}</td><td>${scoreText(g)}</td><td>${scoreFile&&g.average!==null?fmt(g.average,2)+(g.averageMissing?' *':''):'—'}</td><td>${g.passed}</td><td>${g.onpace}</td><td>${g.low}</td><td>${g.pending}</td></tr>`).join('')||emptyRow(8);
+    const rowHtml=g=>'<tr><td>'+escapeHtml(g.label)+'</td>'+[
+      performanceCell(fmt(g.headcount),g.promoters,g.label,null,period),
+      performanceCell(scoreText(g),g.promoters,g.label,null,period),
+      performanceCell(scoreFile&&g.average!==null?fmt(g.average,2)+(g.averageMissing?' *':''):'—',g.promoters,g.label,null,period),
+      ...['passed','onpace','low','pending'].map(status=>performanceCell(g[status],g.promoters,g.label,status,period))
+    ].map(value=>'<td>'+value+'</td>').join('')+'</tr>';
+    const body=$('performance'+kind+'Body');
+    body.innerHTML=groups.map(rowHtml).join('')||emptyRow(8);
+    const total=groups.reduce((t,g)=>{for(const key of ['headcount','points','passed','onpace','low','pending'])t[key]+=g[key];t.missing||=g.missing;t.averageMissing||=g.averageMissing;t.promoters.push(...g.promoters);return t;},{label:'WVIS',headcount:0,points:0,passed:0,onpace:0,low:0,pending:0,missing:false,averageMissing:false,promoters:[]});
+    total.average=total.headcount?total.promoters.reduce((sum,g)=>sum+g.points,0)/total.headcount:null;
+    const footer=body.closest('table').tFoot||body.closest('table').createTFoot();footer.removeAttribute('data-summary-auto');footer.dataset.summary='history';footer.innerHTML=rowHtml(total);
 
   });
   const statuses={passed:'Target reached',onpace:'On-Pace',low:'Low performance',pending:scoreFile?'Incomplete':'Awaiting scores'};
@@ -60,3 +78,26 @@ $('psTargetInput').addEventListener('input',()=>{
   },350);
 });
 
+
+// Drilldowns use the same grouped, filtered promoters and status calculation as each cell.
+const performanceDialog=document.createElement('dialog');
+performanceDialog.className='performance-dialog';
+performanceDialog.setAttribute('aria-labelledby','performanceDialogTitle');
+document.body.append(performanceDialog);
+document.addEventListener('click',event=>{
+ const button=event.target.closest('[data-performance-drilldown]');if(!button)return;
+ const detail=performanceDrilldowns[Number(button.dataset.performanceDrilldown)];if(!detail)return;
+ const roster=window.evisRoster?.getRoster()?.entries||[];
+ const people=detail.people;
+ performanceDialog.innerHTML='<div class="performance-dialog-head"><h2 id="performanceDialogTitle">'+escapeHtml(detail.label+' · '+(performanceLabels[detail.status]||'All promoters'))+'</h2><button type="button" class="secondary-btn" data-performance-close>Close</button></div><p>'+escapeHtml(monthName(selected('monthFilter')))+' · '+people.length+' promoters · Monthly target: '+fmt(PS_SCORE_TARGET,2)+' points</p><div class="table-wrap"><table data-no-sort><thead><tr><th>Promoter</th><th>Current Store</th><th>Area</th><th>Subregion</th><th>Running Score</th><th>Achievement</th><th>Status</th></tr></thead><tbody>'+people.map(g=>{
+  const entry=roster.find(e=>e.key===g.id||e.id===g.id),first=g.items[0]||{};
+  const name=entry?.name||find(first,'PS Name','Promoter Name')||g.id;
+  const store=entry?.store||[...new Set(g.items.map(r=>r._store).filter(Boolean))].join(', ')||'Unassigned';
+  return '<tr>'+[name,store,entry?.area||first._area||'Unassigned',entry?.asm||first._asm||'Unassigned',scoreText(g),scoreFile?fmt(g.points/PS_SCORE_TARGET*100,1)+'%'+(g.missing?' *':''):'—',performanceLabels[performanceStatus(g,detail.period)]].map(v=>'<td>'+escapeHtml(String(v))+'</td>').join('')+'</tr>';
+ }).join('')+'</tbody></table></div>'+(people.length?'':'<p>No promoters in this category.</p>')+'<p>* Incomplete score: one or more models have no agreed score.</p>';
+ performanceDialog.querySelector('[data-performance-close]').onclick=()=>performanceDialog.close();
+ performanceDialog.showModal();
+});
+const performanceDrillStyle=document.createElement('style');
+performanceDrillStyle.textContent='.performance-drilldown{border:0;background:transparent;color:inherit;font:inherit;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:4px 6px;border-radius:4px}.performance-drilldown:hover{background:rgba(128,128,128,.15)}.performance-drilldown:focus-visible{outline:2px solid #2874d0}.performance-dialog{width:min(1200px,94vw);max-height:85vh;overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--text);padding:24px}.performance-dialog::backdrop{background:rgba(0,0,0,.6)}.performance-dialog-head{display:flex;justify-content:space-between;align-items:center;gap:16px}.performance-dialog table{width:100%;border-collapse:collapse}.performance-dialog th,.performance-dialog td{padding:12px;text-align:left;border:1px solid var(--line)}.performance-dialog p{font-size:13px;color:var(--muted)}';
+document.head.append(performanceDrillStyle);
