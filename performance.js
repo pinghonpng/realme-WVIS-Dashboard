@@ -107,6 +107,7 @@ function performanceHireDates(all,roster,cutoff){
 function performanceWeeklyIR(current,previous,available){
  if(!scoreFile||!available||current.missing||previous.missing||previous.points===0)return '<span class="missing">N/A</span>';
  const rate=modelRate(current.points,previous.points);
+ rate.kind=current.points>previous.points?'up':current.points<previous.points?'down':'steady';
  return '<span class="'+rate.kind+'">'+({up:'▲',down:'▼',steady:'━'}[rate.kind]||'')+' '+rate.text+'</span>';
 }
 // Drilldowns use the same grouped, filtered promoters and status calculation as each cell.
@@ -142,5 +143,5 @@ document.addEventListener('click',event=>{
  performanceDialog.showModal();
 });
 const performanceDrillStyle=document.createElement('style');
-performanceDrillStyle.textContent='.performance-drilldown{border:0;background:transparent;color:inherit;font:inherit;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:4px 6px;border-radius:4px}.performance-drilldown:hover{background:rgba(128,128,128,.15)}.performance-drilldown:focus-visible{outline:2px solid #2874d0}.performance-dialog{width:min(1600px,96vw);max-height:85vh;overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--text);padding:24px}.performance-dialog::backdrop{background:rgba(0,0,0,.6)}.performance-dialog-head{display:flex;justify-content:space-between;align-items:center;gap:16px}.performance-dialog table{width:100%;border-collapse:collapse}.performance-dialog th,.performance-dialog td{padding:12px;text-align:left;border:1px solid var(--line)}.performance-dialog p{font-size:13px;color:var(--muted)}';
+performanceDrillStyle.textContent='.performance-drilldown{border:0;background:transparent;color:inherit;font:inherit;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:4px 6px;border-radius:4px}.performance-drilldown:hover{background:rgba(128,128,128,.15)}.performance-drilldown:focus-visible{outline:2px solid #2874d0}.performance-dialog{width:min(1600px,96vw);max-height:85vh;overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--text);padding:24px}.performance-dialog::backdrop{background:rgba(0,0,0,.6)}.performance-dialog-head{display:flex;justify-content:space-between;align-items:center;gap:16px}.performance-dialog table{width:100%;border-collapse:collapse}.performance-dialog th,.performance-dialog td{padding:12px;text-align:left;border:1px solid var(--line)}.performance-dialog .missing{color:var(--muted)}.performance-dialog .up{color:#238344;font-weight:600}.performance-dialog .down{color:#c63c3c;font-weight:600}.performance-dialog .steady{color:#286bc1;font-weight:600}.performance-dialog p{font-size:13px;color:var(--muted)}';
 document.head.append(performanceDrillStyle);
