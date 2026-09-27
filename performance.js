@@ -79,6 +79,21 @@ $('psTargetInput').addEventListener('input',()=>{
 });
 
 
+function performanceWeeklyScores(all,rows,month){
+ const day=r=>productivityCalendarDay(r._date);
+ const cutoff=all.filter(r=>modelMonthKey(r._date)===month).reduce((m,r)=>Math.max(m,day(r)??-Infinity),-Infinity);
+ if(!Number.isFinite(cutoff))return {weeks:[],scores:new Map()};
+ const coverage=new Set(all.map(day).filter(d=>d!==null));
+ const weeks=Array.from({length:4},(_,i)=>{const end=cutoff-i*7,start=end-6;return {start,end,available:Array.from({length:7},(_,j)=>start+j).every(d=>coverage.has(d))};});
+ const scores=new Map();
+ for(const row of rows){
+  const d=day(row);if(d===null)continue;
+  const i=weeks.findIndex(w=>d>=w.start&&d<=w.end);if(i<0)continue;
+  if(!scores.has(row._ps))scores.set(row._ps,Array.from({length:4},()=>({points:0,missing:false})));
+  const item=scores.get(row._ps)[i];if(row._points==null)item.missing=true;else item.points+=row._points;
+ }
+ return {weeks,scores};
+}
 // Drilldowns use the same grouped, filtered promoters and status calculation as each cell.
 const performanceDialog=document.createElement('dialog');
 performanceDialog.className='performance-dialog';
@@ -89,15 +104,25 @@ document.addEventListener('click',event=>{
  const detail=performanceDrilldowns[Number(button.dataset.performanceDrilldown)];if(!detail)return;
  const roster=window.evisRoster?.getRoster()?.entries||[];
  const people=detail.people;
- performanceDialog.innerHTML='<div class="performance-dialog-head"><h2 id="performanceDialogTitle">'+escapeHtml(detail.label+' · '+(performanceLabels[detail.status]||'All promoters'))+'</h2><button type="button" class="secondary-btn" data-performance-close>Close</button></div><p>'+escapeHtml(monthName(selected('monthFilter')))+' · '+people.length+' promoters · Monthly target: '+fmt(PS_SCORE_TARGET,2)+' points</p><div class="table-wrap"><table data-no-sort><thead><tr><th>Promoter</th><th>Current Store</th><th>Area</th><th>Subregion</th><th>Running Score</th><th>Achievement</th><th>Status</th></tr></thead><tbody>'+people.map(g=>{
+ const all=salesEnriched(),filters=[['_area','areaFilter'],['_asm','asmFilter'],['_customer','customerFilter'],['_channel','channelFilter'],['_productType','productTypeFilter'],['_model','modelFilter'],['_series','seriesFilter'],['_priceRange','priceRangeFilter']];
+ const matching=all.filter(r=>filters.every(([key,id])=>passes(r[key],selected(id))));
+ const weeklyRows=activePerformanceRows(matching,window.evisRoster?.getRoster(),{area:selected('areaFilter'),asm:selected('asmFilter'),customer:selected('customerFilter'),channel:selected('channelFilter')},storeMap());
+ const weekly=performanceWeeklyScores(all,weeklyRows,selected('monthFilter'));
+ const weekDate=d=>new Date(d*86400000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
+ const weekHeaders=weekly.weeks.map(w=>'<th>'+escapeHtml(weekDate(w.start)+' – '+weekDate(w.end))+'<br>Score</th>').join('');
+
+ performanceDialog.innerHTML='<div class="performance-dialog-head"><h2 id="performanceDialogTitle">'+escapeHtml(detail.label+' · '+(performanceLabels[detail.status]||'All promoters'))+'</h2><button type="button" class="secondary-btn" data-performance-close>Close</button></div><p>'+escapeHtml(monthName(selected('monthFilter')))+' · '+people.length+' promoters · Monthly target: '+fmt(PS_SCORE_TARGET,2)+' points</p><div class="table-wrap"><table data-no-sort><thead><tr><th>Promoter</th><th>Current Store</th><th>Area</th><th>Subregion</th><th>Running Score</th><th>Achievement</th><th>Status</th>'+weekHeaders+'</tr></thead><tbody>'+people.map(g=>{
   const entry=roster.find(e=>e.key===g.id||e.id===g.id),first=g.items[0]||{};
   const name=entry?.name||find(first,'PS Name','Promoter Name')||g.id;
   const store=entry?.store||[...new Set(g.items.map(r=>r._store).filter(Boolean))].join(', ')||'Unassigned';
-  return '<tr>'+[name,store,entry?.area||first._area||'Unassigned',entry?.asm||first._asm||'Unassigned',scoreText(g),scoreFile?fmt(g.points/PS_SCORE_TARGET*100,1)+'%'+(g.missing?' *':''):'—',performanceLabels[performanceStatus(g,detail.period)]].map(v=>'<td>'+escapeHtml(String(v))+'</td>').join('')+'</tr>';
- }).join('')+'</tbody></table></div>'+(people.length?'':'<p>No promoters in this category.</p>')+'<p>* Incomplete score: one or more models have no agreed score.</p>';
+  return '<tr>'+[name,store,entry?.area||first._area||'Unassigned',entry?.asm||first._asm||'Unassigned',scoreText(g),scoreFile?fmt(g.points/PS_SCORE_TARGET*100,1)+'%'+(g.missing?' *':''):'—',performanceLabels[performanceStatus(g,detail.period)]].map(v=>'<td>'+escapeHtml(String(v))+'</td>').join('')+weekly.weeks.map((w,i)=>{
+   const score=weekly.scores.get(g.id)?.[i]||{points:0,missing:false};
+   return '<td>'+(w.available?scoreText(score):'N/A')+'</td>';
+  }).join('')+'</tr>';
+ }).join('')+'</tbody></table></div>'+(people.length?'':'<p>No promoters in this category.</p>')+'<p>Weekly scores: four consecutive 7-day periods, newest first, ending on the latest source date in the selected month. Current filters and uploaded model scores apply. N/A means incomplete source date coverage. * indicates missing model scores.</p>';
  performanceDialog.querySelector('[data-performance-close]').onclick=()=>performanceDialog.close();
  performanceDialog.showModal();
 });
 const performanceDrillStyle=document.createElement('style');
-performanceDrillStyle.textContent='.performance-drilldown{border:0;background:transparent;color:inherit;font:inherit;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:4px 6px;border-radius:4px}.performance-drilldown:hover{background:rgba(128,128,128,.15)}.performance-drilldown:focus-visible{outline:2px solid #2874d0}.performance-dialog{width:min(1200px,94vw);max-height:85vh;overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--text);padding:24px}.performance-dialog::backdrop{background:rgba(0,0,0,.6)}.performance-dialog-head{display:flex;justify-content:space-between;align-items:center;gap:16px}.performance-dialog table{width:100%;border-collapse:collapse}.performance-dialog th,.performance-dialog td{padding:12px;text-align:left;border:1px solid var(--line)}.performance-dialog p{font-size:13px;color:var(--muted)}';
+performanceDrillStyle.textContent='.performance-drilldown{border:0;background:transparent;color:inherit;font:inherit;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:4px 6px;border-radius:4px}.performance-drilldown:hover{background:rgba(128,128,128,.15)}.performance-drilldown:focus-visible{outline:2px solid #2874d0}.performance-dialog{width:min(1600px,96vw);max-height:85vh;overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--text);padding:24px}.performance-dialog::backdrop{background:rgba(0,0,0,.6)}.performance-dialog-head{display:flex;justify-content:space-between;align-items:center;gap:16px}.performance-dialog table{width:100%;border-collapse:collapse}.performance-dialog th,.performance-dialog td{padding:12px;text-align:left;border:1px solid var(--line)}.performance-dialog p{font-size:13px;color:var(--muted)}';
 document.head.append(performanceDrillStyle);
