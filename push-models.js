@@ -19,7 +19,7 @@ function pushLatestPromoters(all,roster){
   const id=rosterCode(row._ps),named=byName.get(rosterName(find(row,'PS Name','Promoter Name'))),entry=byId.get(id)||((!id||!named?.id)&&named);if(!entry)continue;
   if(!latest.has(entry.key)||row._date>=latest.get(entry.key)._date)latest.set(entry.key,row);
  }
- return roster.entries.map(e=>{const row=latest.get(e.key);return {_ps:e.key,_area:row?._area||e.area,_asm:row?._asm||e.asm,_customer:row?._customer||e.customer||'Unassigned',_channel:row?._channel||'Unassigned'};});
+ return roster.entries.map(e=>{const row=latest.get(e.key);return {_ps:e.key,_name:e.name||e.key,_store:e.store||row?._store||'Unassigned',_area:row?._area||e.area,_asm:row?._asm||e.asm,_customer:row?._customer||e.customer||'Unassigned',_channel:row?._channel||'Unassigned'};});
 }
 function pushReport(all,roster,rangeName,view,filters,campaign){
  const key={area:'_area',subregion:'_asm',dealer:'_customer',channel:'_channel'}[view],label=r=>r[key]||'Unassigned';
@@ -66,7 +66,7 @@ function pushTrends(all,filters,campaign,key){
  return {weeks,months,complete,sum};
 }
 function pushDistribution(all,roster,filters,campaign,view){
- const blank=label=>({label,headcount:0,previousHeadcount:0,newHires:0,unknownHire:0,counts:[0,0,0,0],previousCounts:[0,0,0,0]});
+ const blank=label=>({label,headcount:0,previousHeadcount:0,newHires:0,unknownHire:0,counts:[0,0,0,0],previousCounts:[0,0,0,0],people:[]});
  const day=r=>productivityCalendarDay(r._date),monthRows=all.filter(r=>modelMonthKey(r._date)===filters.month&&day(r)!==null);
  const cutoff=monthRows.reduce((n,r)=>Math.max(n,day(r)),-Infinity),previousCutoff=cutoff-7;
  const [year,month]=filters.month.split('-').map(Number),start=Date.UTC(year,month-1,1)/86400000,coverage=new Set(monthRows.map(day));
@@ -84,13 +84,14 @@ function pushDistribution(all,roster,filters,campaign,view){
  const bucket=q=>Math.min(3,Math.floor(Math.max(0,q||0))),groups=new Map();
  if(passes(campaign.series,filters.series)&&(filters.model==='ALL'||all.some(r=>r._model===filters.model&&r._series===campaign.series)))members.forEach(m=>{
   const label=m[key]||'Unassigned';if(!groups.has(label))groups.set(label,blank(label));const g=groups.get(label),hired=hires.get(m._ps)?.day;
-  g.headcount++;g.counts[bucket(sales.get(m._ps))]++;
+  const units=Math.max(0,sales.get(m._ps)||0),unitBucket=bucket(units);
+  g.headcount++;g.counts[unitBucket]++;g.people.push({...m,units,bucket:unitBucket});
   if(hired==null)g.unknownHire++;
   if(hired!=null&&hired>previousCutoff){g.newHires++;return;}
   g.previousHeadcount++;g.previousCounts[bucket(previousSales.get(m._ps))]++;
  });
  result.groups=[...groups.values()].sort((a,b)=>a.label.localeCompare(b.label));
- result.groups.forEach(g=>{for(const field of ['headcount','previousHeadcount','newHires','unknownHire'])result.total[field]+=g[field];g.counts.forEach((q,i)=>{result.total.counts[i]+=q;result.total.previousCounts[i]+=g.previousCounts[i];});});
+ result.groups.forEach(g=>{for(const field of ['headcount','previousHeadcount','newHires','unknownHire'])result.total[field]+=g[field];result.total.people.push(...g.people);g.counts.forEach((q,i)=>{result.total.counts[i]+=q;result.total.previousCounts[i]+=g.previousCounts[i];});});
  return result;
 }
 function pushDistributionIR(current,previous,bucket,available){
@@ -100,12 +101,28 @@ function pushDistributionIR(current,previous,bucket,available){
  const kind=rate.kind==='steady'?'steady':bucket===0?(rate.kind==='up'?'down':'up'):bucket===3?rate.kind:'neutral';
  return {...rate,kind,symbol};
 }
-function pushDistributionRow(g,dist){
+let pushDistributionDrilldowns=[];
+function pushDistributionDetail(g,dist,campaign,bucket){
+ return {title:campaign.title+' · '+g.label+' · '+(bucket===null?'Active PS':['0 Units','1 Unit','2 Units','3+ Units'][bucket]),start:dist.start,cutoff:dist.cutoff,people:g.people.filter(p=>bucket===null||p.bucket===bucket)};
+}
+function pushDistributionRow(g,dist,campaign){
  const title='Earlier active headcount: '+g.previousHeadcount+'. Known hires since earlier cutoff: '+g.newHires+'. Hire date unavailable: '+g.unknownHire+'.';
- return '<tr><td>'+escapeHtml(g.label)+'</td><td title="'+title+'">'+fmt(g.headcount)+'</td>'+g.counts.map((q,n)=>{
+ const button=(content,bucket)=>{
+  if(!campaign)return content;
+  const detail=pushDistributionDetail(g,dist,campaign,bucket),index=pushDistributionDrilldowns.push(detail)-1;
+  return '<button type="button" class="push-distribution-drilldown'+(bucket===null?' push-distribution-headcount':'')+'" data-push-distribution="'+index+'" aria-haspopup="dialog" aria-label="'+escapeHtml('Show current promoters: '+detail.title)+'">'+content+'</button>';
+ };
+ return '<tr><td>'+escapeHtml(g.label)+'</td><td data-sort-value="'+g.headcount+'" title="'+title+'">'+button(fmt(g.headcount),null)+'</td>'+g.counts.map((q,n)=>{
   const rate=pushDistributionIR(q,g.previousCounts[n],n,dist.available),prior=dist.available?'Previous MTD count: '+g.previousCounts[n]+'.':'Comparison unavailable: requires complete month-to-date source coverage and an earlier cutoff within the selected month.';
-  return '<td class="push-distribution-cell" data-sort-value="'+q+'" title="'+prior+' '+title+'"><span class="push-distribution-now">'+fmt(q)+' ('+pct(g.headcount?q/g.headcount*100:0)+')</span><span class="push-distribution-previous">Prev '+(dist.available?fmt(g.previousCounts[n]):'N/A')+' · <span class="model-rate '+rate.kind+'">'+(rate.symbol?rate.symbol+' ':'')+rate.text+'</span></span></td>';
+  const value='<span class="push-distribution-now">'+fmt(q)+' ('+pct(g.headcount?q/g.headcount*100:0)+')</span><span class="push-distribution-previous">Prev '+(dist.available?fmt(g.previousCounts[n]):'N/A')+' · <span class="model-rate '+rate.kind+'">'+(rate.symbol?rate.symbol+' ':'')+rate.text+'</span></span>';
+  return '<td class="push-distribution-cell" data-sort-value="'+q+'" title="'+prior+' '+title+'">'+button(value,n)+'</td>';
  }).join('')+'</tr>';
+}
+function pushDistributionDialogHtml(detail){
+ const date=d=>Number.isFinite(d)?new Date(d*86400000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}):'Unavailable';
+ const headings=['Promoter','Current Store','Area','Subregion','Dealer','MTD Units'];
+ const rows=detail.people.slice().sort((a,b)=>a._name.localeCompare(b._name)||a._ps.localeCompare(b._ps)).map(p=>'<tr>'+[p._name,p._store,p._area,p._asm,p._customer,fmt(p.units)].map((v,i)=>'<td data-label="'+headings[i]+'"'+(i===5?' class="numeric-nowrap"':'')+'>'+escapeHtml(v||'Unassigned')+'</td>').join('')+'</tr>').join('');
+ return '<div class="push-distribution-dialog-head"><h2 id="pushDistributionDialogTitle">'+escapeHtml(detail.title)+'</h2><button type="button" class="secondary-btn" data-push-distribution-close autofocus>Close</button></div><p>'+fmt(detail.people.length)+' current ACTIVE promoters · MTD '+date(detail.start)+' – '+date(detail.cutoff)+'. Current universal filters apply.</p>'+(detail.people.length?'<div class="table-wrap"><table data-no-sort><thead><tr>'+headings.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div>':'<p>No current active promoters in this cell.</p>');
 }
 function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!==null)?groups.reduce((sum,g)=>sum+Math.max(0,g.target-g.sales),0):null;}
 (()=>{
@@ -118,6 +135,7 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
  const date=d=>Number.isFinite(d)?new Date(d*86400000).toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'}):'—';
  const trendCell=(q,p)=>{const rate=modelRate(q,p),symbol={up:'▲',down:'▼',steady:'━',missing:''}[rate.kind];return '<td data-sort-value="'+(q??'')+'">'+(q===null?'—':fmt(q))+' <span class="model-rate '+rate.kind+'">('+symbol+' '+rate.text+')</span></td>';};
  function renderPushModels(){
+  pushDistributionDrilldowns=[];
   const all=salesEnriched(),roster=window.evisRoster?.getRoster(),range=window.evisPriceRanges?.getRanges().find(r=>normalize(r.name).replace(/[\s,]+/g,'').toLowerCase()==='morephp13000');
   const view=$('pushView').value,filters=Object.fromEntries(['month','productType','area','asm','customer','channel','model','series','priceRange'].map(k=>[k,selected(k+'Filter')]));
   const warnings=[];if(filters.month!=='2026-09')warnings.push('Targets are supplied for September 2026 only.');if(!roster)warnings.push('Waiting for the active promoter list to allocate targets.');if(!range)warnings.push('Define the “more Php 13000” price range to allocate targets.');
@@ -132,7 +150,7 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
    if(mode==='distribution'){
     const dist=pushDistribution(all,roster,filters,campaign,view);
     table.tHead.innerHTML='<tr>'+[label,'Active PS','0 Units','1 Unit','2 Units','3+ Units'].map((x,n)=>'<th data-sort-column="'+n+'">'+x+'</th>').join('')+'</tr>';
-    const distributionRow=g=>pushDistributionRow(g,dist);
+    const distributionRow=g=>pushDistributionRow(g,dist,campaign);
     $('pushBody'+i).innerHTML=dist.groups.map(distributionRow).join('')||emptyRow(6);$('pushTotal'+i).innerHTML=distributionRow(dist.total);
     $('pushPeriod'+i).textContent=Number.isFinite(dist.cutoff)?'MTD '+date(dist.start)+'–'+date(dist.cutoff)+' · Prev = MTD '+(dist.previousCutoff>=dist.start?date(dist.start)+'–'+date(dist.previousCutoff):'N/A (fewer than 8 days in this month)')+' · Current PS (% share), then Prev PS and IR.':'No sales dates available in the selected month.';
     if(i===0){
@@ -153,6 +171,12 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
  section.addEventListener('click',e=>{const b=e.target.closest('button[data-push-mode]');if(!b)return;resetPushSort();mode=b.dataset.pushMode;section.querySelectorAll('button[data-push-mode]').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.pushMode===mode)));renderPushModels();});
  $('pushView').addEventListener('change',()=>{resetPushSort();renderPushModels();});
  const before=render;render=()=>{before();renderPushModels();};window.evisPushModels={render:renderPushModels};
+ const popup=document.createElement('dialog');popup.className='push-distribution-dialog';popup.setAttribute('aria-labelledby','pushDistributionDialogTitle');document.body.append(popup);
+ document.addEventListener('click',event=>{
+  const button=event.target.closest('[data-push-distribution]');if(!button)return;
+  const detail=pushDistributionDrilldowns[Number(button.dataset.pushDistribution)];if(!detail)return;
+  popup.innerHTML=pushDistributionDialogHtml(detail);popup.querySelector('[data-push-distribution-close]').onclick=()=>popup.close();if(!popup.open)popup.showModal();
+ });
 })();
 
 // Color only trend headers; numeric cells retain the standard theme.
@@ -162,6 +186,15 @@ table.push-performance-table td.push-distribution-cell,table.push-performance-ta
 table.push-performance-table .push-distribution-now{display:block;font-weight:600;line-height:1.4}
 table.push-performance-table .push-distribution-previous{display:block;margin-top:3px;font-size:10px;font-style:italic;font-weight:400;line-height:1.4;color:#606977}
 html[data-theme=night] table.push-performance-table .push-distribution-previous{color:#b5c0d0}
+.push-distribution-drilldown{display:block;width:100%;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;padding:2px 4px;border-radius:5px}
+.push-distribution-drilldown .push-distribution-now,.push-distribution-headcount{text-decoration:underline;text-underline-offset:3px}
+.push-distribution-drilldown:hover{background:rgba(128,128,128,.12)}.push-distribution-drilldown:focus-visible{outline:2px solid #2874d0;outline-offset:2px}
+.push-distribution-dialog{width:min(1150px,96vw);max-width:none;box-sizing:border-box;max-height:85vh;overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--text);padding:20px}
+.push-distribution-dialog::backdrop{background:rgba(0,0,0,.6)}.push-distribution-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.push-distribution-dialog h2{font-size:18px;margin:0}.push-distribution-dialog p{font-size:12px;color:var(--muted);line-height:1.5}
+.push-distribution-dialog table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:12px}.push-distribution-dialog :is(th,td){padding:10px 8px;border:1px solid var(--line);text-align:left;overflow-wrap:anywhere;white-space:normal}
+.push-distribution-dialog th:nth-child(1){width:18%}.push-distribution-dialog th:nth-child(2){width:28%}.push-distribution-dialog th:nth-child(3){width:9%}.push-distribution-dialog th:nth-child(4){width:17%}.push-distribution-dialog th:nth-child(5){width:20%}.push-distribution-dialog th:nth-child(6){width:8%}
+.push-distribution-dialog td:last-child{white-space:nowrap!important;text-align:right;font-variant-numeric:tabular-nums}
+@media(max-width:720px){.push-distribution-dialog table,.push-distribution-dialog tbody{display:block}.push-distribution-dialog thead{display:none}.push-distribution-dialog tbody tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border:1px solid var(--line);border-radius:8px;margin-bottom:12px}.push-distribution-dialog td{display:block;min-width:0;border:0}.push-distribution-dialog td:first-child{grid-column:1/-1;font-weight:600}.push-distribution-dialog td::before{content:attr(data-label);display:block;font-size:10px;font-weight:400;color:var(--muted);margin-bottom:4px}.push-distribution-dialog td:last-child{text-align:left}}
 table.push-performance-table .model-rate.neutral,table.push-performance-table .model-rate.missing{color:#606977}
 html[data-theme=night] table.push-performance-table .model-rate.neutral,html[data-theme=night] table.push-performance-table .model-rate.missing{color:#b5c0d0!important}
 table.push-performance-table.push-performance-table[data-push-table-mode=sales] thead :is(th[data-sort-column="5"],th[data-sort-column="6"],th[data-sort-column="7"],th[data-sort-column="8"]),table.push-performance-table.push-performance-table[data-push-table-mode=sales] thead tr:first-child th:nth-child(6){background:#dceaff!important}
