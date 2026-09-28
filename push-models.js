@@ -66,13 +66,46 @@ function pushTrends(all,filters,campaign,key){
  return {weeks,months,complete,sum};
 }
 function pushDistribution(all,roster,filters,campaign,view){
- if(!roster||filters.productType!=='SMARTPHONE')return {groups:[],total:{label:'WVIS',headcount:0,counts:[0,0,0,0]}};
+ const blank=label=>({label,headcount:0,previousHeadcount:0,newHires:0,unknownHire:0,counts:[0,0,0,0],previousCounts:[0,0,0,0]});
+ const day=r=>productivityCalendarDay(r._date),monthRows=all.filter(r=>modelMonthKey(r._date)===filters.month&&day(r)!==null);
+ const cutoff=monthRows.reduce((n,r)=>Math.max(n,day(r)),-Infinity),previousCutoff=cutoff-7;
+ const [year,month]=filters.month.split('-').map(Number),start=Date.UTC(year,month-1,1)/86400000,coverage=new Set(monthRows.map(day));
+ let available=Number.isFinite(cutoff)&&previousCutoff>=start;
+ if(available)for(let d=start;d<=cutoff;d++)if(!coverage.has(d)){available=false;break;}
+ const result={groups:[],total:blank('WVIS'),cutoff,previousCutoff,start,available};
+ if(!roster||!['ALL','SMARTPHONE'].includes(filters.productType)||!Number.isFinite(cutoff))return result;
  const key={area:'_area',subregion:'_asm',dealer:'_customer',channel:'_channel'}[view];
- const members=pushLatestPromoters(all.filter(r=>modelMonthKey(r._date)<=filters.month),roster).filter(r=>['area','asm','customer','channel'].every(k=>passes(r['_'+k],filters[k])));
- const mapped=psSalesReviewData(all,roster,{area:'ALL',asm:'ALL',customer:'ALL',channel:'ALL'},storeMap()).all,sales=new Map();
- mapped.forEach(r=>{if(modelMonthKey(r._date)!==filters.month||r._series!==campaign.series||!['area','asm','customer','channel','productType','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))return;sales.set(r._reviewPs,(sales.get(r._reviewPs)||0)+r._qty);});
- const groups=new Map();if(passes(campaign.series,filters.series)&&(filters.model==='ALL'||all.some(r=>r._model===filters.model&&r._series===campaign.series)))members.forEach(m=>{const label=m[key]||'Unassigned';if(!groups.has(label))groups.set(label,{label,headcount:0,counts:[0,0,0,0]});const g=groups.get(label),q=Math.max(0,sales.get(m._ps)||0);g.headcount++;g.counts[Math.min(3,Math.floor(q))]++;});
- const list=[...groups.values()].sort((a,b)=>a.label.localeCompare(b.label)),total={label:'WVIS',headcount:0,counts:[0,0,0,0]};list.forEach(g=>{total.headcount+=g.headcount;g.counts.forEach((q,i)=>total.counts[i]+=q);});return {groups:list,total};
+ // Keep today's ACTIVE roster and the same assignments for both snapshots. Known hires
+ // after the earlier cutoff enter only the current snapshot, never its zero-unit bucket.
+ const hires=performanceHireDates(all,roster.entries,cutoff);
+ const members=pushLatestPromoters(all.filter(r=>day(r)!==null&&day(r)<=cutoff),roster).filter(r=>['area','asm','customer','channel'].every(k=>passes(r['_'+k],filters[k]))&&(hires.get(r._ps)?.day==null||hires.get(r._ps).day<=cutoff));
+ const mapped=psSalesReviewData(all,roster,{area:'ALL',asm:'ALL',customer:'ALL',channel:'ALL'},storeMap()).all,sales=new Map(),previousSales=new Map();
+ mapped.forEach(r=>{const d=day(r),hired=hires.get(r._reviewPs)?.day;if(d===null||d<start||d>cutoff||(hired!=null&&d<hired)||r._series!==campaign.series||!['area','asm','customer','channel','productType','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))return;sales.set(r._reviewPs,(sales.get(r._reviewPs)||0)+r._qty);if(d<=previousCutoff)previousSales.set(r._reviewPs,(previousSales.get(r._reviewPs)||0)+r._qty);});
+ const bucket=q=>Math.min(3,Math.floor(Math.max(0,q||0))),groups=new Map();
+ if(passes(campaign.series,filters.series)&&(filters.model==='ALL'||all.some(r=>r._model===filters.model&&r._series===campaign.series)))members.forEach(m=>{
+  const label=m[key]||'Unassigned';if(!groups.has(label))groups.set(label,blank(label));const g=groups.get(label),hired=hires.get(m._ps)?.day;
+  g.headcount++;g.counts[bucket(sales.get(m._ps))]++;
+  if(hired==null)g.unknownHire++;
+  if(hired!=null&&hired>previousCutoff){g.newHires++;return;}
+  g.previousHeadcount++;g.previousCounts[bucket(previousSales.get(m._ps))]++;
+ });
+ result.groups=[...groups.values()].sort((a,b)=>a.label.localeCompare(b.label));
+ result.groups.forEach(g=>{for(const field of ['headcount','previousHeadcount','newHires','unknownHire'])result.total[field]+=g[field];g.counts.forEach((q,i)=>{result.total.counts[i]+=q;result.total.previousCounts[i]+=g.previousCounts[i];});});
+ return result;
+}
+function pushDistributionIR(current,previous,bucket,available){
+ if(!available||previous===0)return {text:'N/A',kind:'missing',symbol:''};
+ const rate=modelRate(current,previous),symbol={up:'▲',down:'▼',steady:'━'}[rate.kind];
+ // Arrows describe count direction; color describes whether that direction is desirable.
+ const kind=rate.kind==='steady'?'steady':bucket===0?(rate.kind==='up'?'down':'up'):bucket===3?rate.kind:'neutral';
+ return {...rate,kind,symbol};
+}
+function pushDistributionRow(g,dist){
+ const title='Earlier active headcount: '+g.previousHeadcount+'. Known hires since earlier cutoff: '+g.newHires+'. Hire date unavailable: '+g.unknownHire+'.';
+ return '<tr><td>'+escapeHtml(g.label)+'</td><td title="'+title+'">'+fmt(g.headcount)+'</td>'+g.counts.map((q,n)=>{
+  const rate=pushDistributionIR(q,g.previousCounts[n],n,dist.available),prior=dist.available?'Previous MTD count: '+g.previousCounts[n]+'.':'Comparison unavailable: requires complete month-to-date source coverage and an earlier cutoff within the selected month.';
+  return '<td data-sort-value="'+q+'" title="'+prior+' '+title+'">'+fmt(q)+' ('+pct(g.headcount?q/g.headcount*100:0)+') <span class="model-rate '+rate.kind+'">('+(rate.symbol?rate.symbol+' ':'')+rate.text+')</span></td>';
+ }).join('')+'</tr>';
 }
 function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!==null)?groups.reduce((sum,g)=>sum+Math.max(0,g.target-g.sales),0):null;}
 (()=>{
@@ -95,11 +128,17 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
    $('pushPeriod'+i).textContent=monthName(filters.month)+' · '+campaign.start+'–'+campaign.end+' sales window. '+(report.latest?'Uploaded sales through day '+report.latest+'.':'No uploaded sales in this window.')+(campaign.total===null?' Target not supplied.':'');
    const table=$('pushBody'+i).closest('table'),label={area:'Area',subregion:'Subregion',dealer:'Dealer',channel:'Customer Type'}[view],key={area:'_area',subregion:'_asm',dealer:'_customer',channel:'_channel'}[view];
    table.dataset.pushTableMode=mode;table.classList.add('push-performance-table');
+   if(mode==='distribution')$('pushPeriod'+i).setAttribute('role','status');else $('pushPeriod'+i).removeAttribute('role');
    if(mode==='distribution'){
     const dist=pushDistribution(all,roster,filters,campaign,view);
     table.tHead.innerHTML='<tr>'+[label,'Active PS','0 Units','1 Unit','2 Units','3+ Units'].map((x,n)=>'<th data-sort-column="'+n+'">'+x+'</th>').join('')+'</tr>';
-    const distributionRow=g=>'<tr><td>'+escapeHtml(g.label)+'</td><td>'+fmt(g.headcount)+'</td>'+g.counts.map(q=>'<td data-sort-value="'+q+'">'+fmt(q)+' ('+pct(g.headcount?q/g.headcount*100:0)+')</td>').join('')+'</tr>';
+    const distributionRow=g=>pushDistributionRow(g,dist);
     $('pushBody'+i).innerHTML=dist.groups.map(distributionRow).join('')||emptyRow(6);$('pushTotal'+i).innerHTML=distributionRow(dist.total);
+    $('pushPeriod'+i).textContent=Number.isFinite(dist.cutoff)?'MTD '+date(dist.start)+'–'+date(dist.cutoff)+' · IR vs '+(dist.previousCutoff>=dist.start?date(dist.start)+'–'+date(dist.previousCutoff):'N/A (fewer than 8 days in this month)')+' · Promoters (% share) (IR).':'No sales dates available in the selected month.';
+    if(i===0){
+     const note='Green: fewer at 0 units or more at 3+; red: the reverse. 1/2-unit changes are neutral; ±1% is blue/steady. Both snapshots use the current ACTIVE roster and the same assignments. Known hires since the earlier cutoff: '+dist.total.newHires+' (included now, excluded before hire; IR includes this headcount change).'+(dist.total.unknownHire?' Hire date unavailable: '+dist.total.unknownHire+'; included in both snapshots.':'')+(!dist.available?' IR unavailable until complete source date coverage is available for both MTD periods.':'');
+     warnings.splice(0,warnings.length,...(!roster?['Waiting for the active promoter list.']:[]),note);
+    }
     return;
    }
    const trends=pushTrends(all,filters,campaign,key);
@@ -119,6 +158,8 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
 // Color only trend headers; numeric cells retain the standard theme.
 (()=>{const style=document.createElement('style');style.textContent=`
 table.push-performance-table.push-performance-table th,table.push-performance-table.push-performance-table td{border:1px solid #8993a3!important}
+table.push-performance-table .model-rate.neutral,table.push-performance-table .model-rate.missing{color:#606977}
+html[data-theme=night] table.push-performance-table .model-rate.neutral,html[data-theme=night] table.push-performance-table .model-rate.missing{color:#b5c0d0!important}
 table.push-performance-table.push-performance-table[data-push-table-mode=sales] thead :is(th[data-sort-column="5"],th[data-sort-column="6"],th[data-sort-column="7"],th[data-sort-column="8"]),table.push-performance-table.push-performance-table[data-push-table-mode=sales] thead tr:first-child th:nth-child(6){background:#dceaff!important}
 table.push-performance-table.push-performance-table[data-push-table-mode=sales] thead :is(th[data-sort-column="9"],th[data-sort-column="10"],th[data-sort-column="11"]),table.push-performance-table.push-performance-table[data-push-table-mode=sales] thead tr:first-child th:nth-child(7){background:#e9dff8!important}
 html[data-theme=night] table.push-performance-table.push-performance-table th,html[data-theme=night] table.push-performance-table.push-performance-table td{border-color:#718096!important}
