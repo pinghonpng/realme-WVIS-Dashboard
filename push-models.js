@@ -104,7 +104,7 @@ function pushDistributionRow(g,dist){
  const title='Earlier active headcount: '+g.previousHeadcount+'. Known hires since earlier cutoff: '+g.newHires+'. Hire date unavailable: '+g.unknownHire+'.';
  return '<tr><td>'+escapeHtml(g.label)+'</td><td title="'+title+'">'+fmt(g.headcount)+'</td>'+g.counts.map((q,n)=>{
   const rate=pushDistributionIR(q,g.previousCounts[n],n,dist.available),prior=dist.available?'Previous MTD count: '+g.previousCounts[n]+'.':'Comparison unavailable: requires complete month-to-date source coverage and an earlier cutoff within the selected month.';
-  return '<td data-sort-value="'+q+'" title="'+prior+' '+title+'">'+fmt(q)+' ('+pct(g.headcount?q/g.headcount*100:0)+') <span class="model-rate '+rate.kind+'">('+(rate.symbol?rate.symbol+' ':'')+rate.text+')</span></td>';
+  return '<td class="push-distribution-cell" data-sort-value="'+q+'" title="'+prior+' '+title+'">'+fmt(q)+' ('+pct(g.headcount?q/g.headcount*100:0)+') · 7 days ago: '+(dist.available?fmt(g.previousCounts[n]):'N/A')+' · <span class="model-rate '+rate.kind+'">('+(rate.symbol?rate.symbol+' ':'')+rate.text+')</span></td>';
  }).join('')+'</tr>';
 }
 function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!==null)?groups.reduce((sum,g)=>sum+Math.max(0,g.target-g.sales),0):null;}
@@ -134,7 +134,7 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
     table.tHead.innerHTML='<tr>'+[label,'Active PS','0 Units','1 Unit','2 Units','3+ Units'].map((x,n)=>'<th data-sort-column="'+n+'">'+x+'</th>').join('')+'</tr>';
     const distributionRow=g=>pushDistributionRow(g,dist);
     $('pushBody'+i).innerHTML=dist.groups.map(distributionRow).join('')||emptyRow(6);$('pushTotal'+i).innerHTML=distributionRow(dist.total);
-    $('pushPeriod'+i).textContent=Number.isFinite(dist.cutoff)?'MTD '+date(dist.start)+'–'+date(dist.cutoff)+' · IR vs '+(dist.previousCutoff>=dist.start?date(dist.start)+'–'+date(dist.previousCutoff):'N/A (fewer than 8 days in this month)')+' · Promoters (% share) (IR).':'No sales dates available in the selected month.';
+    $('pushPeriod'+i).textContent=Number.isFinite(dist.cutoff)?'MTD '+date(dist.start)+'–'+date(dist.cutoff)+' · IR vs '+(dist.previousCutoff>=dist.start?date(dist.start)+'–'+date(dist.previousCutoff):'N/A (fewer than 8 days in this month)')+' · Current PS (% share) · 7 days ago: PS · (IR).':'No sales dates available in the selected month.';
     if(i===0){
      const note='Green: fewer at 0 units or more at 3+; red: the reverse. 1/2-unit changes are neutral; ±1% is blue/steady. Both snapshots use the current ACTIVE roster and the same assignments. Known hires since the earlier cutoff: '+dist.total.newHires+' (included now, excluded before hire; IR includes this headcount change).'+(dist.total.unknownHire?' Hire date unavailable: '+dist.total.unknownHire+'; included in both snapshots.':'')+(!dist.available?' IR unavailable until complete source date coverage is available for both MTD periods.':'');
      warnings.splice(0,warnings.length,...(!roster?['Waiting for the active promoter list.']:[]),note);
@@ -158,6 +158,7 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
 // Color only trend headers; numeric cells retain the standard theme.
 (()=>{const style=document.createElement('style');style.textContent=`
 table.push-performance-table.push-performance-table th,table.push-performance-table.push-performance-table td{border:1px solid #8993a3!important}
+table.push-performance-table td.push-distribution-cell,table.push-performance-table td.push-distribution-cell span{white-space:nowrap!important;overflow-wrap:normal!important;word-break:normal!important}
 table.push-performance-table .model-rate.neutral,table.push-performance-table .model-rate.missing{color:#606977}
 html[data-theme=night] table.push-performance-table .model-rate.neutral,html[data-theme=night] table.push-performance-table .model-rate.missing{color:#b5c0d0!important}
 table.push-performance-table.push-performance-table[data-push-table-mode=sales] thead :is(th[data-sort-column="5"],th[data-sort-column="6"],th[data-sort-column="7"],th[data-sort-column="8"]),table.push-performance-table.push-performance-table[data-push-table-mode=sales] thead tr:first-child th:nth-child(6){background:#dceaff!important}
