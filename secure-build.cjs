@@ -6,7 +6,7 @@ const fn = path.join(output, 'functions/api/gateway.func');
 const stat = path.join(output, 'static');
 fs.mkdirSync(path.join(fn, 'dashboard'), { recursive: true });
 fs.mkdirSync(stat, { recursive: true });
-const assets = ['index.html','app.js','styles.css','scoring.js','performance.js','model-history.js','price-ranges.js','active-promoters.js','productivity.js','push-models.js','asm-incentives.js','overview-views.js','zero-sellout.js','fullscreen.js','sorting.js','shared-data.js','config.js','accounts.js'];
+const assets = ['index.html','app.js','styles.css','scoring.js','performance.js','model-history.js','price-ranges.js','active-promoters.js','productivity.js','push-models.js','asm-incentives.js','promoter-incentives.js','overview-views.js','zero-sellout.js','fullscreen.js','sorting.js','shared-data.js','config.js','accounts.js'];
 for (const name of assets) fs.copyFileSync(path.join(__dirname, name), path.join(fn, 'dashboard', name));
 for (const name of ['gateway.cjs', 'security.cjs']) fs.copyFileSync(path.join(__dirname, name), path.join(fn, name));
 fs.copyFileSync(path.join(__dirname, 'login.html'), path.join(stat, 'index.html'));
