@@ -7,7 +7,7 @@ function rosterParse(rows){
  rows.forEach(r=>{if(normalize(r.STATUS).toUpperCase()!=='ACTIVE'||!normalize(r['PS NAME']))return;
  const name=rosterName(r['PS NAME']),id=(normalize(r['PS NAME']).match(/^(\d{5,})\s+/)||[])[1]||rosterCode(r['ID NUMBER']);
  const key=id||'name:'+name;if(seenKeys.has(key))return;seenKeys.add(key);
- if(id)ids.add(id);else namesWithoutId.add(name);names.add(name);entries.push({id:id||'',key:id||'name:'+name,name:normalize(r['PS NAME']).replace(/^\d{5,}\s+/,''),area:normalize(r.REGION),asm:normalize(r.SUBREGION),store:normalize(r.STORE),sid:normalize(r['STORE CODE']),customer:normalize(r.DEALER)});count++;
+ if(id)ids.add(id);else namesWithoutId.add(name);names.add(name);entries.push({id:id||'',key:id||'name:'+name,name:normalize(r['PS NAME']).replace(/^\d{5,}\s+/,''),area:normalize(r.REGION),asm:normalize(r.SUBREGION),store:normalize(r.STORE),storeType:normalize(r['STORE TYPE']),sid:normalize(r['STORE CODE']),customer:normalize(r.DEALER)});count++;
  });
  if(!count)throw new Error('No ACTIVE promoters found. The last verified list is retained.');
  return {ids,names,namesWithoutId,entries,count};
