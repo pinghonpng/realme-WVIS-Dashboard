@@ -63,10 +63,10 @@ function dealerDirectory(texts){
 function buildReport(input,checkedAt=new Date().toISOString()){
  const issued=source(input.issued,['Customer Name','CM Owner Name','CM Doc No','CM Amount','Aging','CM Remarks','CM UPDATED'],'INPUT ISSUED');
  const used=source(input.used,['CM Doc No','Amount Used','CM UPDATED'],'INPUT USED');
- const available=source(input.available,['Customer Name','CM Doc No','AmountLeft','CM UPDATED'],'INPUT AVAILABLE');
- const directory=dealerDirectory(input.dealers),usage=new Map(),balances=new Map();
+ const available=source(input.available,['Customer Name','CM Doc No','AmountLeft','CM UPDATED','UPDATED AGING DAYS'],'INPUT AVAILABLE');
+ const directory=dealerDirectory(input.dealers),usage=new Map(),balances=new Map(),updatedAging=new Map();
  for(const r of used){const id=key(r['CM Doc No']);if(!id)continue;usage.set(id,add(usage.has(id)?usage.get(id):0,cents(r['Amount Used'],'INPUT USED / '+id)));}
- for(const r of available){const id=key(r['CM Doc No']);if(!id)continue;if(balances.has(id))throw error('Duplicate CM number in INPUT AVAILABLE: '+id);balances.set(id,cents(r.AmountLeft,'INPUT AVAILABLE / '+id));}
+ for(const r of available){const id=key(r['CM Doc No']);if(!id)continue;if(balances.has(id))throw error('Duplicate CM number in INPUT AVAILABLE: '+id);balances.set(id,cents(r.AmountLeft,'INPUT AVAILABLE / '+id));updatedAging.set(id,r['UPDATED AGING DAYS']);}
  const rows=[],dealers=new Map(),seen=new Set();let excludedNka=0;
  for(const r of issued){
   const id=key(r['CM Doc No']);if(!id)continue;
@@ -81,12 +81,14 @@ function buildReport(input,checkedAt=new Date().toISOString()){
   if(!customer)throw error('Customer Name is missing in INPUT ISSUED for '+id+'.');
   const dealerId=key(customer),issuedCents=cents(r['CM Amount'],'INPUT ISSUED / '+id),usedCents=usage.has(id)?usage.get(id):0;
   const remainingCents=add(issuedCents,usedCents),availableCents=balances.has(id)?balances.get(id):0,differenceCents=remainingCents===null||availableCents===null?null:remainingCents-availableCents;
-  const aging=/^\d+$/.test(r.Aging)?Number(r.Aging):null;
+  const agingValue=updatedAging.has(id)?updatedAging.get(id):r.Aging;
+  const aging=/^\d+$/.test(agingValue)?Number(agingValue):null;
   if(!dealers.has(dealerId))dealers.set(dealerId,{id:dealerId,name:customer,classified:!!match});
   else if(!match)dealers.get(dealerId).classified=false;
   rows.push({dealerId,owner:r['CM Owner Name'],arNo:r['CM Doc No'],description:r['CM Remarks'],aging,
    status:remainingCents===0&&availableCents===0?'CONSUMED':'',issuedCents,usedCents,remainingCents,availableCents,differenceCents,
-   availableListed:balances.has(id),isAvailable:remainingCents>0||availableCents>0,remarks:''});
+   // INPUT AVAILABLE membership determines this view, not calculated Remaining.
+   availableListed:balances.has(id),isAvailable:balances.has(id),remarks:''});
  }
  const sourceDates={};for(const [name,items] of [['issued',issued],['used',used],['available',available]])sourceDates[name]=items.map(r=>day(r['CM UPDATED'])).filter(Boolean).sort().at(-1)||null;
  return {checkedAt,sourceDates,dealers:[...dealers.values()].sort((a,b)=>a.name.localeCompare(b.name)),rows,
