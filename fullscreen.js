@@ -109,6 +109,9 @@
   });
  }
  function fitTable(table,layout,columns){
+  // Leave the scrollable layout before measuring so its scrollbar cannot affect the fit.
+  layout.frame.classList.toggle('mobile-table-actual',layout.actual);
+  if(!layout.actual){layout.frame.scrollLeft=0;layout.frame.scrollTop=0;}
   const available=layout.frame.clientWidth;if(!available)return;
   // Preserve all columns and fit the existing table without duplicating data or event handlers.
   const naturalWidth=Math.max(available,columns*88+80);
@@ -116,7 +119,6 @@
   const width=Math.max(table.offsetWidth,table.scrollWidth),scale=layout.actual?1:Math.min(1,available/width);
   table.style.setProperty('--mobile-table-scale',String(scale));
   layout.frame.style.setProperty('--mobile-table-height',Math.ceil(table.offsetHeight*scale)+'px');
-  layout.frame.classList.toggle('mobile-table-actual',layout.actual);
  }
  function prepareTable(table){
   if(!table.tHead||!table.tBodies.length||table.closest('.pi-scheme'))return;
@@ -222,7 +224,7 @@
  html[data-mobile-view] .mobile-table-sort select{display:block;width:100%;margin-top:5px;padding:10px;border:1px solid #c9ced8;border-radius:8px;background:var(--card,#fff);color:inherit}
  html[data-mobile-view] .mobile-table-sort button{min-height:42px}
  .mobile-table-frame{display:contents}
- html[data-mobile-view] .mobile-table-frame{display:block;position:relative;width:100%;max-width:100%;height:var(--mobile-table-height,auto);overflow:hidden}
+ html[data-mobile-view] .mobile-table-frame{display:block;position:relative;width:100%;max-width:100%;height:var(--mobile-table-height,auto);overflow:hidden;overflow:clip;scroll-behavior:auto}
  html[data-mobile-view] .mobile-table-frame.mobile-table-actual{overflow:auto;max-height:70dvh}
  html[data-mobile-view] .mobile-table-sort button[aria-pressed="true"]{background:#fff3bf;border-color:#efb900;color:#17191c}
  html[data-mobile-view] table.mobile-fit-table{display:table!important;position:relative;width:var(--mobile-table-width,100%)!important;min-width:0!important;max-width:none!important;table-layout:auto!important;transform:scale(var(--mobile-table-scale,1));transform-origin:top left;font-size:12px!important}
