@@ -88,7 +88,8 @@
 // A device-local reading layout. Keep the original cells, controls and handlers intact.
 (()=>{
  const root=document.documentElement,media=matchMedia('(max-width:760px)'),preferenceKey='wvis.mobileView';
- const tableControls=new WeakMap();let preference=null,queued=false,toggle,menu;
+ const tableControls=new WeakMap(),tableLayouts=new WeakMap(),frameWidths=new WeakMap();let preference=null,queued=false,toggle,menu;
+ const frameObserver=new ResizeObserver(entries=>{for(const entry of entries){const width=entry.contentRect.width;if(frameWidths.get(entry.target)!==width){frameWidths.set(entry.target,width);schedule();}}});
  try{const saved=localStorage.getItem(preferenceKey);if(saved==='true'||saved==='false')preference=saved==='true';}catch{}
  function enabled(){return preference===null?media.matches:preference;}
  function cleanLabel(cell){return (cell.querySelector('.table-sort-button')?.getAttribute('aria-label')?.replace(/^Sort by /,'')||cell.textContent).replace(/[↕↑↓]/g,'').replace(/\s+/g,' ').trim();}
@@ -107,31 +108,43 @@
    return {label:headers.map(cleanLabel).filter(Boolean).join(' · '),header:headers.at(-1)};
   });
  }
+ function fitTable(table,layout,columns){
+  const available=layout.frame.clientWidth;if(!available)return;
+  // Preserve all columns and fit the existing table without duplicating data or event handlers.
+  const naturalWidth=Math.max(available,columns*88+80);
+  table.style.setProperty('--mobile-table-width',naturalWidth+'px');
+  const width=Math.max(table.offsetWidth,table.scrollWidth),scale=layout.actual?1:Math.min(1,available/width);
+  table.style.setProperty('--mobile-table-scale',String(scale));
+  layout.frame.style.setProperty('--mobile-table-height',Math.ceil(table.offsetHeight*scale)+'px');
+  layout.frame.classList.toggle('mobile-table-actual',layout.actual);
+ }
  function prepareTable(table){
   if(!table.tHead||!table.tBodies.length||table.closest('.pi-scheme'))return;
   const columns=columnsFor(table);if(!columns.length)return;
-  table.classList.add('mobile-record-table');
-  // Labels live in attributes: textContent remains purely the original sales/score value.
-  [...table.tBodies,...(table.tFoot?[table.tFoot]:[])].forEach(group=>{
-   [...group.rows].forEach(row=>{let column=0;[...row.cells].forEach(cell=>{
-    const label=cell.colSpan>=columns.length?'':columns.slice(column,column+cell.colSpan).map(c=>c.label).join(' / ');
-    if(cell.dataset.mobileLabel!==label)cell.dataset.mobileLabel=label;
-    cell.classList.toggle('mobile-wide-cell',column===0||cell.colSpan>1);column+=cell.colSpan;
-   });});
-  });
+  table.classList.add('mobile-fit-table');
+  let layout=tableLayouts.get(table);
+  if(!layout||table.parentElement!==layout.frame){
+   const frame=document.createElement('div');frame.className='mobile-table-frame';table.before(frame);frame.append(table);
+   layout={frame,actual:false};tableLayouts.set(table,layout);
+  }
   const sortable=columns.map((column,index)=>({...column,index,button:column.header?.querySelector('.table-sort-button')})).filter(column=>column.button&&column.header.colSpan===1);
   let controls=tableControls.get(table);
-  if(!sortable.length){if(controls)controls.bar.hidden=true;return;}
   if(!controls){
    const bar=document.createElement('div');bar.className='mobile-table-sort';
    const label=document.createElement('label');label.append('Sort by ');
    const select=document.createElement('select');label.append(select);
    const direction=document.createElement('button');direction.type='button';direction.className='secondary-btn';
-   bar.append(label,direction);table.before(bar);controls={bar,select,direction,signature:'',sortable:[]};tableControls.set(table,controls);
+   const fit=document.createElement('button');fit.type='button';fit.className='secondary-btn';fit.textContent='Fit width';
+   const actual=document.createElement('button');actual.type='button';actual.className='secondary-btn';actual.textContent='Larger text';
+   bar.append(label,direction,fit,actual);layout.frame.before(bar);controls={bar,label,select,direction,fit,actual,signature:'',sortable:[]};tableControls.set(table,controls);
+   fit.addEventListener('click',()=>{tableLayouts.get(table).actual=false;schedule();});
+   actual.addEventListener('click',()=>{tableLayouts.get(table).actual=true;schedule();});
    select.addEventListener('change',()=>{controls.sortable.find(column=>String(column.index)===select.value)?.button.click();schedule();});
    direction.addEventListener('click',()=>{controls.sortable.find(column=>String(column.index)===select.value)?.button.click();schedule();});
   }
-  controls.bar.hidden=false;controls.sortable=sortable;
+  controls.sortable=sortable;controls.label.hidden=!sortable.length;controls.direction.hidden=!sortable.length;
+  controls.fit.setAttribute('aria-pressed',String(!layout.actual));controls.actual.setAttribute('aria-pressed',String(layout.actual));
+  fitTable(table,layout,columns.length);
   const signature=JSON.stringify(sortable.map(({label,index})=>[label,index]));
   if(signature!==controls.signature){
    controls.select.replaceChildren(new Option('Choose column',''),...sortable.map(column=>new Option(column.label,String(column.index))));controls.signature=signature;
@@ -143,12 +156,12 @@
   if(controls.direction.textContent!==text)controls.direction.textContent=text;
   controls.direction.setAttribute('aria-label',selected?'Reverse sort order for '+selected.label:'Choose a column to sort');
  }
- function prepare(){queued=false;if(!enabled())return;document.querySelectorAll('.main table,dialog table').forEach(prepareTable);}
+ function prepare(){queued=false;frameObserver.disconnect();if(!enabled())return;document.querySelectorAll('.main table,dialog table').forEach(table=>{prepareTable(table);const layout=tableLayouts.get(table);if(layout)frameObserver.observe(layout.frame);});}
  function schedule(){if(!enabled()||queued)return;queued=true;requestAnimationFrame(prepare);}
  function closeMenu(){root.removeAttribute('data-mobile-menu');menu?.setAttribute('aria-expanded','false');}
  function apply(){
   const mobile=enabled();root.toggleAttribute('data-mobile-view',mobile);toggle?.setAttribute('aria-pressed',String(mobile));closeMenu();
-  if(mobile)schedule();
+  if(mobile)schedule();else frameObserver.disconnect();
   // Chart.js listens for resize; the CSS now has the final available width.
   requestAnimationFrame(()=>window.dispatchEvent(new Event('resize')));
  }
@@ -167,6 +180,9 @@
   }
   apply();media.addEventListener('change',()=>{if(preference===null)apply();});
   new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true,characterData:true});
+  // Tab changes, expanded cards, open dialogs and device rotation can change available width.
+  document.addEventListener('click',schedule);document.addEventListener('change',schedule);document.addEventListener('toggle',schedule,true);window.addEventListener('resize',schedule);
+  document.fonts?.ready.then(schedule);
  }
  const style=document.createElement('style');style.textContent=`
  #mobileNavToggle,.mobile-table-sort{display:none}
@@ -205,18 +221,23 @@
  html[data-mobile-view] .mobile-table-sort label{flex:1 1 180px;min-width:0;font-size:12px;font-weight:600}
  html[data-mobile-view] .mobile-table-sort select{display:block;width:100%;margin-top:5px;padding:10px;border:1px solid #c9ced8;border-radius:8px;background:var(--card,#fff);color:inherit}
  html[data-mobile-view] .mobile-table-sort button{min-height:42px}
- html[data-mobile-view] table.mobile-record-table{display:block!important;width:100%!important;min-width:0!important;max-width:100%!important;border:0!important;table-layout:auto!important}
- html[data-mobile-view] table.mobile-record-table>colgroup{display:none!important}
- html[data-mobile-view] table.mobile-record-table>thead{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip-path:inset(50%);white-space:nowrap}
- html[data-mobile-view] table.mobile-record-table>tbody,html[data-mobile-view] table.mobile-record-table>tfoot{display:block!important;width:100%!important}
- html[data-mobile-view] table.mobile-record-table>tbody>tr,html[data-mobile-view] table.mobile-record-table>tfoot>tr{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:0;width:100%;margin:0 0 12px;border:1px solid #b7bfcd;border-radius:10px;overflow:hidden}
- html[data-mobile-view] table.mobile-record-table>tbody>tr>* ,html[data-mobile-view] table.mobile-record-table>tfoot>tr>*{display:block!important;position:static!important;min-width:0!important;max-width:100%!important;width:auto!important;padding:10px 12px!important;text-align:left!important;white-space:normal!important;overflow-wrap:anywhere!important;border:0!important;border-bottom:1px solid #dde1e8!important;font-size:14px!important;line-height:1.45!important}
- html[data-mobile-view] table.mobile-record-table tr>.mobile-wide-cell{grid-column:1/-1!important}
- html[data-mobile-view] table.mobile-record-table tr>:first-child{font-weight:700!important}
- html[data-mobile-view] table.mobile-record-table tr>[data-mobile-label]::before{content:attr(data-mobile-label)!important;display:block!important;position:static!important;margin:0 0 4px!important;padding:0!important;font-size:11px!important;font-weight:600!important;line-height:1.4!important;white-space:normal!important;overflow-wrap:anywhere!important;text-transform:uppercase;opacity:.72}
- html[data-mobile-view] table.mobile-record-table tr>[data-mobile-label=""]::before{display:none!important}
- html[data-mobile-view] table.mobile-record-table tr>.numeric-nowrap{white-space:nowrap!important;overflow-wrap:normal!important}
- html[data-mobile-view] table.mobile-record-table tr>*>button:not(.secondary-btn){max-width:100%;font-size:inherit}
+ .mobile-table-frame{display:contents}
+ html[data-mobile-view] .mobile-table-frame{display:block;position:relative;width:100%;max-width:100%;height:var(--mobile-table-height,auto);overflow:hidden}
+ html[data-mobile-view] .mobile-table-frame.mobile-table-actual{overflow:auto;max-height:70dvh}
+ html[data-mobile-view] .mobile-table-sort button[aria-pressed="true"]{background:#fff3bf;border-color:#efb900;color:#17191c}
+ html[data-mobile-view] table.mobile-fit-table{display:table!important;position:relative;width:var(--mobile-table-width,100%)!important;min-width:0!important;max-width:none!important;table-layout:auto!important;transform:scale(var(--mobile-table-scale,1));transform-origin:top left;font-size:12px!important}
+ html[data-mobile-view] table.mobile-fit-table>colgroup{display:table-column-group!important}
+ html[data-mobile-view] table.mobile-fit-table>thead{display:table-header-group!important;position:static!important;width:auto!important;height:auto!important;overflow:visible!important;clip-path:none!important;white-space:normal!important}
+ html[data-mobile-view] table.mobile-fit-table>tbody{display:table-row-group!important}
+ html[data-mobile-view] table.mobile-fit-table>tfoot{display:table-footer-group!important}
+ html[data-mobile-view] table.mobile-fit-table tr{display:table-row!important;width:auto!important;margin:0!important;overflow:visible!important}
+ html[data-mobile-view] table.mobile-fit-table :is(th,td){display:table-cell!important;position:static!important;min-width:0!important;max-width:none!important;width:auto!important;padding:8px 6px!important;font-size:12px!important;line-height:1.4!important;white-space:normal!important;overflow-wrap:anywhere!important;border:1px solid var(--line,#d8dce2)}
+ html[data-mobile-view] table.mobile-fit-table thead th{font-size:10px!important;text-align:center!important}
+ html[data-mobile-view] table.mobile-fit-table tbody tr>:first-child{min-width:125px!important;max-width:190px!important}
+ html[data-mobile-view] table.mobile-fit-table :is(td,th)::before{display:none!important}
+ html[data-mobile-view] table.mobile-fit-table .numeric-nowrap{white-space:nowrap!important;overflow-wrap:normal!important}
+ html[data-mobile-view] table.mobile-fit-table button{font:inherit}
+ html[data-mobile-view] table.mobile-fit-table small{font-size:10px!important}
  html[data-mobile-view] dialog{box-sizing:border-box;width:calc(100% - 16px)!important;max-width:calc(100% - 16px)!important;min-width:0!important;padding:14px!important;max-height:calc(100dvh - 16px)!important;overflow:auto}
  html[data-mobile-view] dialog header,html[data-mobile-view] .fullscreen-toolbar{flex-wrap:wrap;gap:10px}
  html[data-mobile-view] dialog h2,html[data-mobile-view] dialog h3{font-size:20px;overflow-wrap:anywhere}
@@ -225,8 +246,6 @@
  html[data-mobile-view] .pi-scheme{padding:14px}
  html[data-mobile-view] .pi-scheme-grid{grid-template-columns:minmax(0,1fr)}
  html[data-mobile-view] .pi-scheme-grid>div+div{border-left:0;border-top:1px solid var(--line);padding:12px 0 0}
- html[data-theme="night"][data-mobile-view] table.mobile-record-table>tbody>tr,html[data-theme="night"][data-mobile-view] table.mobile-record-table>tfoot>tr{border-color:#657185}
- html[data-theme="night"][data-mobile-view] table.mobile-record-table>tbody>tr>*,html[data-theme="night"][data-mobile-view] table.mobile-record-table>tfoot>tr>*{border-bottom-color:#465166!important}
  @media(max-width:360px){html[data-mobile-view] .kpi-grid,html[data-mobile-view] .kpi-grid.four,html[data-mobile-view] .pi-kpis,html[data-mobile-view] .zero-kpis{grid-template-columns:minmax(0,1fr)}}
  `;document.head.append(style);
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
