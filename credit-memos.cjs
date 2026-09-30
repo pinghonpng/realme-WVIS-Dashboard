@@ -62,11 +62,16 @@ function dealerDirectory(texts){
 }
 function buildReport(input,checkedAt=new Date().toISOString()){
  const issued=source(input.issued,['Customer Name','CM Owner Name','CM Doc No','CM Amount','Aging','CM Remarks','CM UPDATED'],'INPUT ISSUED');
- const used=source(input.used,['CM Doc No','Amount Used','CM UPDATED','REMARKS'],'INPUT USED');
+ const used=source(input.used,['CM Doc No','Amount Used','CM UPDATED','REMARKS','SO Usage','UsedDate'],'INPUT USED');
  const available=source(input.available,['Customer Name','CM Doc No','AmountLeft','CM UPDATED','UPDATED AGING DAYS'],'INPUT AVAILABLE');
- const directory=dealerDirectory(input.dealers),usage=new Map(),balances=new Map(),updatedAging=new Map();
+ const directory=dealerDirectory(input.dealers),usage=new Map(),balances=new Map(),updatedAging=new Map(),transactions=[];
  // The sheet also records UNUSED balances. Only USED rows are actual usage.
- for(const r of used){const id=key(r['CM Doc No']);if(!id||key(r.REMARKS)!=='USED')continue;usage.set(id,add(usage.has(id)?usage.get(id):0,cents(r['Amount Used'],'INPUT USED / '+id)));}
+ for(const r of used){
+  const id=key(r['CM Doc No']);if(!id||key(r.REMARKS)!=='USED')continue;
+  const usedCents=cents(r['Amount Used'],'INPUT USED / '+id);
+  usage.set(id,add(usage.has(id)?usage.get(id):0,usedCents));
+  transactions.push({cmId:id,cmNo:r['CM Doc No'],soId:key(r['SO Usage']),soNo:r['SO Usage'],usedDate:day(r.UsedDate)||null,usedCents});
+ }
  for(const r of available){const id=key(r['CM Doc No']);if(!id)continue;if(balances.has(id))throw error('Duplicate CM number in INPUT AVAILABLE: '+id);balances.set(id,cents(r.AmountLeft,'INPUT AVAILABLE / '+id));updatedAging.set(id,r['UPDATED AGING DAYS']);}
  const rows=[],dealers=new Map(),seen=new Set();let excludedNka=0;
  for(const r of issued){
@@ -92,7 +97,10 @@ function buildReport(input,checkedAt=new Date().toISOString()){
    availableListed:balances.has(id),isAvailable:balances.has(id),remarks:remainingCents>0&&!balances.has(id)?'EXPIRED':''});
  }
  const sourceDates={};for(const [name,items] of [['issued',issued],['used',used],['available',available]])sourceDates[name]=items.map(r=>day(r['CM UPDATED'])).filter(Boolean).sort().at(-1)||null;
+ // Apply the same NonNKA scope to usage drilldowns as to the CM tables.
+ const includedIds=new Set(rows.map(r=>key(r.arNo)));
  return {checkedAt,sourceDates,dealers:[...dealers.values()].sort((a,b)=>a.name.localeCompare(b.name)),rows,
+  usageTransactions:transactions.filter(r=>includedIds.has(r.cmId)).sort((a,b)=>(b.usedDate||'').localeCompare(a.usedDate||'')||a.cmId.localeCompare(b.cmId)),
   diagnostics:{excludedNka,unclassifiedDealers:[...dealers.values()].filter(d=>!d.classified).length,availableWithoutIssued:[...balances.keys()].filter(id=>!seen.has(id)).length}};
 }
 
