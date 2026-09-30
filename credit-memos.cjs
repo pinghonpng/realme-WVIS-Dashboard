@@ -62,10 +62,11 @@ function dealerDirectory(texts){
 }
 function buildReport(input,checkedAt=new Date().toISOString()){
  const issued=source(input.issued,['Customer Name','CM Owner Name','CM Doc No','CM Amount','Aging','CM Remarks','CM UPDATED'],'INPUT ISSUED');
- const used=source(input.used,['CM Doc No','Amount Used','CM UPDATED'],'INPUT USED');
+ const used=source(input.used,['CM Doc No','Amount Used','CM UPDATED','REMARKS'],'INPUT USED');
  const available=source(input.available,['Customer Name','CM Doc No','AmountLeft','CM UPDATED','UPDATED AGING DAYS'],'INPUT AVAILABLE');
  const directory=dealerDirectory(input.dealers),usage=new Map(),balances=new Map(),updatedAging=new Map();
- for(const r of used){const id=key(r['CM Doc No']);if(!id)continue;usage.set(id,add(usage.has(id)?usage.get(id):0,cents(r['Amount Used'],'INPUT USED / '+id)));}
+ // The sheet also records UNUSED balances. Only USED rows are actual usage.
+ for(const r of used){const id=key(r['CM Doc No']);if(!id||key(r.REMARKS)!=='USED')continue;usage.set(id,add(usage.has(id)?usage.get(id):0,cents(r['Amount Used'],'INPUT USED / '+id)));}
  for(const r of available){const id=key(r['CM Doc No']);if(!id)continue;if(balances.has(id))throw error('Duplicate CM number in INPUT AVAILABLE: '+id);balances.set(id,cents(r.AmountLeft,'INPUT AVAILABLE / '+id));updatedAging.set(id,r['UPDATED AGING DAYS']);}
  const rows=[],dealers=new Map(),seen=new Set();let excludedNka=0;
  for(const r of issued){
@@ -88,7 +89,7 @@ function buildReport(input,checkedAt=new Date().toISOString()){
   rows.push({dealerId,owner:r['CM Owner Name'],arNo:r['CM Doc No'],description:r['CM Remarks'],aging,
    status:remainingCents===0&&availableCents===0?'CONSUMED':'',issuedCents,usedCents,remainingCents,availableCents,differenceCents,
    // INPUT AVAILABLE membership determines this view, not calculated Remaining.
-   availableListed:balances.has(id),isAvailable:balances.has(id),remarks:''});
+   availableListed:balances.has(id),isAvailable:balances.has(id),remarks:remainingCents>0&&!balances.has(id)?'EXPIRED':''});
  }
  const sourceDates={};for(const [name,items] of [['issued',issued],['used',used],['available',available]])sourceDates[name]=items.map(r=>day(r['CM UPDATED'])).filter(Boolean).sort().at(-1)||null;
  return {checkedAt,sourceDates,dealers:[...dealers.values()].sort((a,b)=>a.name.localeCompare(b.name)),rows,
