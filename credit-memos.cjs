@@ -68,8 +68,6 @@ function buildReport(input,checkedAt=new Date().toISOString()){
  for(const r of used){const id=key(r['CM Doc No']);if(!id)continue;usage.set(id,add(usage.has(id)?usage.get(id):0,cents(r['Amount Used'],'INPUT USED / '+id)));}
  for(const r of available){const id=key(r['CM Doc No']);if(!id)continue;if(balances.has(id))throw error('Duplicate CM number in INPUT AVAILABLE: '+id);balances.set(id,cents(r.AmountLeft,'INPUT AVAILABLE / '+id));}
  const rows=[],dealers=new Map(),seen=new Set();let excludedNka=0;
- // Include known NonNKA dealers even when no CM has been issued to them.
- for(const d of directory.short.values())if(!d.nka)dealers.set(key(d.name),{id:key(d.name),name:d.name,classified:true});
  for(const r of issued){
   const id=key(r['CM Doc No']);if(!id)continue;
   if(seen.has(id))throw error('Duplicate CM number in INPUT ISSUED: '+id);seen.add(id);
@@ -77,12 +75,16 @@ function buildReport(input,checkedAt=new Date().toISOString()){
   const owner=r['CM Owner Name']||r['Customer Name'];
   const match=directory.short.get(key(owner))||directory.legal.get(key(owner))||(!r['CM Owner Name']?directory.legal.get(key(r['Customer Name'])):null);
   if(match?.nka){excludedNka++;continue;}
-  if(!owner)throw error('CM owner is missing for '+id+'.');
-  const dealer=match?.name||owner,dealerId=key(dealer),issuedCents=cents(r['CM Amount'],'INPUT ISSUED / '+id),usedCents=usage.has(id)?usage.get(id):0;
+  // Dropdown groups come only from INPUT ISSUED Customer Name (column A).
+  // A customer can have several CM owners; retain column B in each table row.
+  const customer=r['Customer Name'];
+  if(!customer)throw error('Customer Name is missing in INPUT ISSUED for '+id+'.');
+  const dealerId=key(customer),issuedCents=cents(r['CM Amount'],'INPUT ISSUED / '+id),usedCents=usage.has(id)?usage.get(id):0;
   const remainingCents=add(issuedCents,usedCents),availableCents=balances.has(id)?balances.get(id):0,differenceCents=remainingCents===null||availableCents===null?null:remainingCents-availableCents;
   const aging=/^\d+$/.test(r.Aging)?Number(r.Aging):null;
-  if(!dealers.has(dealerId))dealers.set(dealerId,{id:dealerId,name:dealer,classified:!!match});
-  rows.push({dealerId,owner:dealer,arNo:r['CM Doc No'],description:r['CM Remarks'],aging,
+  if(!dealers.has(dealerId))dealers.set(dealerId,{id:dealerId,name:customer,classified:!!match});
+  else if(!match)dealers.get(dealerId).classified=false;
+  rows.push({dealerId,owner:r['CM Owner Name'],arNo:r['CM Doc No'],description:r['CM Remarks'],aging,
    status:remainingCents===0&&availableCents===0?'CONSUMED':'',issuedCents,usedCents,remainingCents,availableCents,differenceCents,
    availableListed:balances.has(id),isAvailable:remainingCents>0||availableCents>0,remarks:''});
  }
