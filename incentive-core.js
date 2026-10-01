@@ -17,9 +17,10 @@ function productivityHireDay(value){
 }
 
 function modelMonthKey(date){return !date||isNaN(date)?'':date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0');}
-// Approved September policy. Other months require their own approved scheme.
+// Each month has its own approved policy. Saved archives retain their original policy and results.
 const PROMOTER_INCENTIVE_POLICIES={
- '2026-09':{bonusModels:{c100:['C100'],eol:['12PRO+','13PRO','13PRO+','14PRO','14PRO+','15PRO']},bonusTiers:{c100:[[5,800],[10,1800]],eol:[[2,600],[4,1400]]},techlifeMinimum:60,base:{EVIS:140,NEGROS:170,PANAY:170},thresholds:{Multibrand:[275,400,550],'Concept / Kiosk':[425,550,750]},multipliers:{EVIS:[22,26,32,36],NEGROS:[20,24,30,34],PANAY:[20,24,30,34]}}
+ '2026-09':{bonusModels:{c100:['C100'],eol:['12PRO+','13PRO','13PRO+','14PRO','14PRO+','15PRO']},bonusTiers:{c100:[[5,800],[10,1800]],eol:[[2,600],[4,1400]]},techlifeMinimum:60,base:{EVIS:140,NEGROS:170,PANAY:170},thresholds:{Multibrand:[275,400,550],'Concept / Kiosk':[425,550,750]},multipliers:{EVIS:[22,26,32,36],NEGROS:[20,24,30,34],PANAY:[20,24,30,34]}},
+ '2026-10':{calculation:'proportional-brands',realmeTargets:{smartphone:30,push:15},bonusModels:{push:['16T','C100']},bonusTiers:{push:[[8,1500],[12,3000]]},techlifeMinimum:60,base:{EVIS:100,NEGROS:120,PANAY:120},thresholds:{Multibrand:[225,350,475],'Concept / Kiosk':[375,500,675]},multipliers:{EVIS:[22,26,32,36],NEGROS:[20,24,28,32],PANAY:[20,24,28,32]}}
 };
 function promoterIncentiveFormat(value){
  const s=normalize(value).toLowerCase().replace(/[\s_-]+/g,' ');
@@ -31,14 +32,30 @@ function promoterIncentiveBonusModel(code,month='2026-09'){
  const s=normalize(code).toUpperCase();if(!/^HP[.\s]/.test(s))return '';
  const model=s.replace(/^HP[.\s]+/,'').split('(')[0].replace(/\b[45]G\b/g,'').replace(/\s/g,'');
  const models=PROMOTER_INCENTIVE_POLICIES[month]?.bonusModels;if(!models)return '';
- if(models.c100.includes(model)&&!/5G/.test(s))return 'c100';
- return models.eol.includes(model)?'eol':'';
+ if(models.push?.includes(model)&&(model!=='C100'||!/5G/.test(s)))return 'push';
+ if(models.c100?.includes(model)&&!/5G/.test(s))return 'c100';
+ return models.eol?.includes(model)?'eol':'';
 }
-function promoterIncentiveAmounts(points,area,format,c100Units,eolUnits,month,techlifePoints=0){
+function promoterIncentiveAmounts(points,area,format,c100Units,eolUnits,month,techlifePoints=0,units={}){
  const policy=PROMOTER_INCENTIVE_POLICIES[month],base=policy?.base[area]??null,thresholds=policy?.thresholds[format];
  const stars=Number.isFinite(points)&&thresholds?thresholds.filter(t=>points>=t).length:null;
  const multiplier=stars!==null?policy?.multipliers[area]?.[stars]??null:null;
  const techlifeEligible=policy&&Number.isFinite(techlifePoints)?techlifePoints>=policy.techlifeMinimum:null;
+ if(policy?.calculation==='proportional-brands'){
+  const smartphoneUnits=units.smartphoneUnits,pushUnits=units.pushUnits;
+  const realmeEligible=Number.isFinite(smartphoneUnits)&&Number.isFinite(pushUnits)?smartphoneUnits>=policy.realmeTargets.smartphone||pushUnits>=policy.realmeTargets.push:null;
+  const valid=Number.isFinite(points)&&Number.isFinite(techlifePoints)&&points>=0&&techlifePoints>=0&&techlifePoints<=points;
+  const realmePoints=valid?points-techlifePoints:null;
+  const poolCents=valid&&base!==null&&multiplier!==null?Math.round(Math.max(0,points-base)*multiplier*100):null;
+  // Allocate the base-adjusted pool once; a failed gate never changes either brand's share.
+  const realmeCents=poolCents===null?null:points===0?0:Math.round(poolCents*realmePoints/points);
+  const techlifeCents=poolCents===null?null:poolCents-realmeCents;
+  const realmeCommission=realmeEligible===null||realmeCents===null?null:realmeEligible?realmeCents/100:0;
+  const techlifeCommission=techlifeEligible===null||techlifeCents===null?null:techlifeEligible?techlifeCents/100:0;
+  const regular=realmeCommission===null||techlifeCommission===null?null:Math.round((realmeCommission+techlifeCommission)*100)/100;
+  const push=Number.isFinite(pushUnits)?policy.bonusTiers.push.reduce((amount,[target,reward])=>pushUnits>=target?reward:amount,0):null;
+  return {base,stars,multiplier,realmeEligible,techlifeEligible,realmePoints,pool:poolCents===null?null:poolCents/100,realmeShare:realmeCents===null?null:realmeCents/100,techlifeShare:techlifeCents===null?null:techlifeCents/100,realmeCommission,techlifeCommission,regular,push,extra:push,total:regular===null||push===null?null:Math.round((regular+push)*100)/100};
+ }
  const excludedTechlife=techlifeEligible===false?techlifePoints:techlifeEligible===true?0:null;
  const paidPoints=Number.isFinite(points)&&excludedTechlife!==null?points-excludedTechlife:null;
  const regular=base!==null&&multiplier!==null&&paidPoints!==null?Math.round(Math.max(0,paidPoints-base)*multiplier*100)/100:null;
@@ -48,6 +65,7 @@ function promoterIncentiveAmounts(points,area,format,c100Units,eolUnits,month,te
  return {base,stars,multiplier,techlifeEligible,excludedTechlife,paidPoints,regular,c100,eol,extra:policy?c100+eol:null,total:regular===null?null:regular+c100+eol};
 }
 function promoterIncentiveReport(all,roster,month){
+ const proportional=PROMOTER_INCENTIVE_POLICIES[month]?.calculation==='proportional-brands';
  const period=all.filter(r=>modelMonthKey(r._date)===month),cutoff=period.reduce((d,r)=>Math.max(d,+r._date),-Infinity);
  const history=all.filter(r=>r._date&&!isNaN(r._date)&&+r._date<=cutoff),entries=roster?.entries||[];
  const ids=new Map(entries.filter(e=>e.id).map(e=>[rosterCode(e.id),e])),names=new Map(entries.map(e=>[rosterName(e.name),e]));
@@ -63,11 +81,12 @@ function promoterIncentiveReport(all,roster,month){
   }
  }
  const people=new Map();let excluded=0,unassigned=0;
- const person=id=>{if(!people.has(id.key))people.set(id.key,{key:id.key,name:id.name,entry:id.entry,active:roster?!!id.entry:null,smartphone:0,realme:0,techlife:0,unclassified:0,c100Units:0,eolUnits:0,units:0,models:new Map(),issues:new Set()});return people.get(id.key);};
+ const person=id=>{if(!people.has(id.key))people.set(id.key,{key:id.key,name:id.name,entry:id.entry,active:roster?!!id.entry:null,smartphone:0,realme:0,techlife:0,unclassified:0,c100Units:0,eolUnits:0,units:0,models:new Map(),issues:new Set(),...(proportional?{smartphoneUnits:0,pushUnits:0}:{})});return people.get(id.key);};
  for(const r of period){
   const role=normalize(find(r,'SR Role')).toUpperCase();if(!['SP','NHT'].includes(role)){excluded++;continue;}
   const id=identity(r);if(!id.key){unassigned++;continue;}const p=person(id),code=normalize(r._modelCode),points=Number.isFinite(r._points)?r._points:null;
   const type=/^HP/i.test(code)?'smartphone':/^ACSR/i.test(code)&&r._series&&r._series!=='Unmapped series'?(/^realme/i.test(r._series)?'realme':'techlife'):'unclassified';
+  if(proportional&&type==='smartphone')p.smartphoneUnits+=r._qty;
   p.units+=r._qty;p[type]+=points??0;if(points===null)p.issues.add('Missing model scores');if(type==='unclassified')p.issues.add('Unmapped product / series');
   const bonus=promoterIncentiveBonusModel(code,month);if(bonus)p[bonus+'Units']+=r._qty;
   const key=JSON.stringify([r._model,r._series,r._scoreRate]);if(!p.models.has(key))p.models.set(key,{name:r._model||code,series:r._series||'Unmapped series',type,units:0,points:0,rate:r._scoreRate,missing:false,bonus});
@@ -85,7 +104,7 @@ function promoterIncentiveReport(all,roster,month){
   if(!p.format)p.issues.add('Store type needs review');if(!['EVIS','NEGROS','PANAY'].includes(p.area))p.issues.add('Area needs review');
   p.points=p.smartphone+p.realme+p.techlife+p.unclassified;
   const incomplete=p.issues.has('Missing model scores')||p.issues.has('Unmapped product / series');
-  Object.assign(p,promoterIncentiveAmounts(incomplete?NaN:p.points,p.area,p.format,p.c100Units,p.eolUnits,month,p.techlife));
+  Object.assign(p,promoterIncentiveAmounts(incomplete?NaN:p.points,p.area,p.format,p.c100Units,p.eolUnits,month,p.techlife,p));
   if(!PROMOTER_INCENTIVE_POLICIES[month])p.issues.add('Monthly scheme not set');
   p.models=[...p.models.values()].sort((a,b)=>a.name.localeCompare(b.name));
  }
@@ -96,7 +115,8 @@ function promoterIncentiveTotals(people){
  const total={count:people.length,pending:people.filter(p=>p.total===null).length,active:people.filter(p=>p.active===true).length,inactive:people.filter(p=>p.active===false).length,statusUnknown:people.filter(p=>p.active===null).length,withIncentive:recipients.filter(p=>p.active===true).length,noIncentive:people.filter(p=>p.active===true&&p.total===0).length,activePending:people.filter(p=>p.active===true&&p.total===null).length};
  total.withShare=total.active?total.withIncentive/total.active*100:0;total.noShare=total.active?total.noIncentive/total.active*100:0;
  total.averageIncentive=recipients.length?recipients.reduce((sum,p)=>sum+p.total,0)/recipients.length:null;
- for(const key of ['smartphone','realme','techlife','points','regular','c100','eol','extra','total'])total[key]=people.some(p=>p[key]===null)?null:people.reduce((s,p)=>s+p[key],0);
+ for(const key of ['smartphone','realme','techlife','points','regular','c100','eol','extra','total'])total[key]=people.some(p=>p[key]===null)?null:people.reduce((s,p)=>s+(p[key]??0),0);
+ for(const key of ['realmeCommission','techlifeCommission','push'])if(people.some(p=>key in p))total[key]=people.some(p=>p[key]===null)?null:Math.round(people.reduce((s,p)=>s+(p[key]??0),0)*100)/100;
  return total;
 }
 
