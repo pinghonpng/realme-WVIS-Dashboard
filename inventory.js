@@ -23,7 +23,8 @@
  const modelSelect=(id,value,i)=>'<select data-inv="'+id+'" aria-label="Model column '+(i+1)+'">'+options(data.models,value,'Select model')+'</select>';
  const number=v=>v==null?'—':Number(v).toLocaleString(undefined,{maximumFractionDigits:2});
  const qty=(s,m)=>!m?'<td></td>':'<td class="'+(s.stock[m]===0?'inv-zero':'')+'">'+number(s.stock[m])+'</td>';
- const table=(headers,rows)=>'<div class="table-wrap"><table><thead><tr>'+headers.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div>';
+ // Inventory owns its dropdown headers and grouped totals; generic sorting must not replace them.
+ const table=(headers,rows)=>'<div class="table-wrap"><table data-no-sort><thead><tr>'+headers.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div>';
  const empty=n=>'<tr><td colspan="'+n+'">NO PS STORE</td></tr>';
  let complianceGroups=[];
  const manilaToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
