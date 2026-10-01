@@ -23,6 +23,15 @@ function territoryPerformance(rows,key,period){
   }).sort((a,b)=>a.label.localeCompare(b.label));
 }
 let performanceDrilldowns=[];
+const performanceCohorts={area:'ALL PS',subregion:'ALL PS'};
+let performanceLastRows=[];
+function performanceCohortData(all,roster,month){
+ const cutoff=all.filter(r=>modelMonthKey(r._date)===month).reduce((d,r)=>Math.max(d,productivityCalendarDay(r._date)??-Infinity),-Infinity);
+ const hires=performanceHireDates(all,roster,cutoff),types=new Map();
+ for(const entry of roster){const hire=hires.get(entry.key)?.day;types.set(entry.key,hire==null?'unknown':hire>cutoff?'future':cutoff-hire+1>=30?'REG PS':'NHT');}
+ return {cutoff,types};
+}
+function performanceCohortRows(rows,cohort,types){return cohort==='ALL PS'?rows:rows.filter(r=>types.get(r._ps)===cohort);}
 const performanceLabels={passed:'Target reached',onpace:'On-Pace',low:'Low performance',pending:'Incomplete / Awaiting scores'};
 function performanceCell(value,promoters,label,status,period){
  const people=status?promoters.filter(g=>performanceStatus(g,period)===status):promoters;
@@ -30,16 +39,23 @@ function performanceCell(value,promoters,label,status,period){
  return '<button type="button" class="performance-drilldown" data-performance-drilldown="'+index+'" aria-label="'+escapeHtml('Show promoters: '+label+' · '+(performanceLabels[status]||'All promoters'))+'">'+value+'</button>';
 }
 function renderTerritoryPerformance(rows){
+  performanceLastRows=rows;
   performanceDrilldowns=[];
   $('psTargetKpi').textContent=fmt(PS_SCORE_TARGET,2);
-  const period=performancePeriod(salesEnriched(),selected('monthFilter'));
+  const all=salesEnriched(),period=performancePeriod(all,selected('monthFilter'));
+  const cohortData=performanceCohortData(all,window.evisRoster?.getRoster()?.entries||[],selected('monthFilter'));
+  const ids=new Set(rows.map(r=>r._ps)),unknown=[...ids].filter(id=>!cohortData.types.has(id)||cohortData.types.get(id)==='unknown').length,future=[...ids].filter(id=>cohortData.types.get(id)==='future').length;
   ['area','subregion'].forEach(kind=>{
-    const groups=territoryPerformance(rows,kind==='area'?'_area':'_asm',period);
+    const cohort=performanceCohorts[kind],groups=territoryPerformance(performanceCohortRows(rows,cohort,cohortData.types),kind==='area'?'_area':'_asm',period);
+    document.querySelectorAll('[data-performance-kind="'+kind+'"]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.performanceCohort===cohort)));
+    const cutoffLabel=Number.isFinite(cohortData.cutoff)?new Date(cohortData.cutoff*86400000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}):'date unavailable';
+    $('performance'+kind+'CohortNote').textContent='Current active PS · '+cohort+' · Tenure as of '+cutoffLabel+'. REG PS: 30+ calendar days; NHT: under 30 days (hire day counts as day 1).'+(unknown?' '+unknown+' with unavailable hire dates appear in ALL PS only.':'')+(future?' '+future+' hired after the cutoff appear in ALL PS only.':'');
+    const detailLabel=label=>label+' · '+cohort;
     const rowHtml=g=>'<tr><td>'+escapeHtml(g.label)+'</td>'+[
-      performanceCell(fmt(g.headcount),g.promoters,g.label,null,period),
-      performanceCell(scoreText(g),g.promoters,g.label,null,period),
-      performanceCell(scoreFile&&g.average!==null?fmt(g.average,2)+(g.averageMissing?' *':''):'—',g.promoters,g.label,null,period),
-      ...['passed','onpace','low','pending'].map(status=>performanceCell(g[status],g.promoters,g.label,status,period))
+      performanceCell(fmt(g.headcount),g.promoters,detailLabel(g.label),null,period),
+      performanceCell(scoreText(g),g.promoters,detailLabel(g.label),null,period),
+      performanceCell(scoreFile&&g.average!==null?fmt(g.average,2)+(g.averageMissing?' *':''):'—',g.promoters,detailLabel(g.label),null,period),
+      ...['passed','onpace','low','pending'].map(status=>performanceCell(g[status],g.promoters,detailLabel(g.label),status,period))
     ].map(value=>'<td>'+value+'</td>').join('')+'</tr>';
     const body=$('performance'+kind+'Body');
     body.innerHTML=groups.map(rowHtml).join('')||emptyRow(8);
@@ -57,11 +73,18 @@ function mountTerritoryPerformance(){
   style.textContent='.performance-panel{margin:18px 0;padding:24px;box-shadow:none;border:1px solid #dfe2e6;border-radius:8px}.performance-panel h2{font-size:18px;margin:0 0 16px}.performance-panel table{width:100%;border-collapse:collapse;border:1px solid #dfe2e6}.performance-panel th,.performance-panel td{border:1px solid #dfe2e6;padding:12px 14px;text-align:right;font-variant-numeric:tabular-nums}.performance-panel th{background:#f7f8fa;font-weight:600}.performance-panel th:first-child,.performance-panel td:first-child{text-align:left}.performance-panel tbody tr:hover{background:#fafafa}.promoter-score-panel{box-shadow:none;border:1px solid #dfe2e6;border-radius:8px}.promoter-score-panel table{border-collapse:collapse;width:100%}.promoter-score-panel th,.promoter-score-panel td{border:1px solid #dfe2e6;padding:12px 14px;font-variant-numeric:tabular-nums}.promoter-score-panel th{background:#f7f8fa}.promoter-score-panel td[data-performance-status]{font-weight:600;white-space:nowrap}.promoter-score-panel td[data-performance-status=passed]{background:#e2f3e5;color:#235b32}.promoter-score-panel td[data-performance-status=low]{background:#fbe3e3;color:#8c3030}.promoter-score-panel td[data-performance-status=onpace]{background:#fff0db;color:#80501d}.promoter-score-panel td[data-performance-status=pending]{background:#f2f3f5;color:#555}';
   document.head.appendChild(style);
   $('promoterScoreBody').closest('article').classList.add('promoter-score-panel');
-  $('promotersSection').insertAdjacentHTML('afterbegin',['area','subregion'].map(kind=>`<article class="card performance-panel"><h2>${kind==='area'?'Area':'Subregion'} Performance</h2><div class="table-wrap"><table><thead><tr><th>${kind==='area'?'Area':'Area / Subregion'}</th><th>PS headcount</th><th>Running score</th><th>Average / PS</th><th>Target Reached</th><th>On-Pace</th><th>Low Performance</th><th>Incomplete / Awaiting Scores</th></tr></thead><tbody id="performance${kind}Body"></tbody></table></div></article>`).join(''));
+  style.textContent+='.performance-panel .card-head{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px}.performance-panel .card-head h2{margin:0}.performance-cohort-controls{display:flex;gap:6px;flex-wrap:wrap}.performance-cohort-controls button{font-size:12px;padding:8px 12px;white-space:nowrap}.performance-cohort-controls button[aria-pressed="true"]{background:#fff2bc;border-color:#d4ad20;color:#111214}.performance-cohort-note{font-size:11px;color:var(--muted);margin:0 0 12px}';
+  $('promotersSection').insertAdjacentHTML('afterbegin',['area','subregion'].map(kind=>`<article class="card performance-panel"><div class="card-head"><h2>${kind==='area'?'Area':'Subregion'} Performance</h2><div class="performance-cohort-controls" role="group" aria-label="${kind==='area'?'Area':'Subregion'} performance PS type">${['ALL PS','REG PS','NHT'].map(cohort=>`<button type="button" class="secondary-btn" data-performance-kind="${kind}" data-performance-cohort="${cohort}" aria-pressed="${cohort==='ALL PS'}">${cohort}</button>`).join('')}</div></div><div class="performance-cohort-note" id="performance${kind}CohortNote" role="status"></div><div class="table-wrap"><table><thead><tr><th>${kind==='area'?'Area':'Area / Subregion'}</th><th>PS headcount</th><th>Running score</th><th>Average / PS</th><th>Target Reached</th><th>On-Pace</th><th>Low Performance</th><th>Incomplete / Awaiting Scores</th></tr></thead><tbody id="performance${kind}Body"></tbody></table></div></article>`).join(''));
 }
 const originalTerritoryScores=renderScores;
 renderScores=rows=>{originalTerritoryScores(rows);renderTerritoryPerformance(rows);};
 mountTerritoryPerformance();
+document.addEventListener('click',event=>{
+ const button=event.target.closest('[data-performance-cohort]');if(!button)return;
+ const kind=button.dataset.performanceKind,cohort=button.dataset.performanceCohort;
+ if(!Object.hasOwn(performanceCohorts,kind)||!['ALL PS','REG PS','NHT'].includes(cohort))return;
+ performanceCohorts[kind]=cohort;renderTerritoryPerformance(performanceLastRows);
+});
 
 const PS_TARGET_STORAGE='evis.psMonthlyTarget';
 try{const saved=Number(localStorage.getItem(PS_TARGET_STORAGE));if(Number.isFinite(saved)&&saved>0)PS_SCORE_TARGET=saved;}catch(error){}

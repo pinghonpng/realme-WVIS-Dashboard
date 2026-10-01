@@ -47,7 +47,8 @@ function renderModelHistory(rows,bodyId='modelTableBody',groupKey='_model',entit
   if(table.tHead.querySelectorAll('[data-sort-column]').length!==labels.length)table.tHead.innerHTML='<tr>'+labels.slice(0,leading).map((label,i)=>`<th rowspan="2" scope="col" data-sort-column="${i}">${escapeHtml(label)}</th>`).join('')+'<th colspan="3" scope="colgroup">Monthly Sales</th><th colspan="3" scope="colgroup">Increase Rate</th></tr><tr>'+labels.slice(leading).map((label,i)=>`<th scope="col" data-sort-column="${i+leading}">${escapeHtml(label)}</th>`).join('')+'</tr>';
   else [...table.tHead.querySelectorAll('[data-sort-column]')].forEach((cell,i)=>{const button=cell.querySelector('.table-sort-button');if(button){button.setAttribute('aria-label','Sort by '+labels[i]);button.textContent=labels[i]+({'ascending':' ↑','descending':' ↓'}[cell.getAttribute('aria-sort')]||' ↕');}else cell.textContent=labels[i];});
   table.tHead.querySelector('[scope=colgroup]').textContent=currency?'Monthly Sales (₱)':isScore?'Monthly Scores':'Monthly Sales';
-  const models=(options.entities||uniq([...buckets.get(month).sales.keys()])).filter(options.entityFilter||(()=>true));
+  // Keep groups sold in any comparison month, including groups with zero current sales.
+  const models=(options.entities||uniq([...buckets.values()].flatMap(bucket=>[...bucket.sales.keys()]))).filter(options.entityFilter||(()=>true));
   if(bodyId==='priceRangeTableBody'){const order=new Map((window.evisPriceRanges?.getRanges()||[]).map((range,index)=>[range.name,index]));models.sort((a,b)=>(order.get(a)??Infinity)-(order.get(b)??Infinity)||a.localeCompare(b));}
   const current=buckets.get(month),total=options.entities?[...current.sales.values()].reduce((sum,qty)=>sum+qty,0):rows.reduce((sum,r)=>sum+measure(r),0);
   const totalDecline=history.matchedAvailable?historyTotalDecline(models,current.sales,history.matched):null;
