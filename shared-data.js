@@ -6,6 +6,7 @@ let manifest=null,session=null,admin=window.dashboardAccount.role==='admin',busy
 const cache=new Map();
 const salesSheet={id:'1AaSTsNKEO0olJ1UxCwtSLpktkSMKvfiDERlBLhWFDkc',tabs:{fixed:'PREVIOUS MONTHS',current:'CURRENT MONTH'}};
 let sheetSnapshot=null,sheetFailure='',sheetChecked=null,installedVersion='';
+window.evisIncentiveSources=()=>({ready:!!manifest&&!!sheetSnapshot&&!sheetFailure&&!busy&&!loading,version:manifest?.version,salesVersion:sheetSnapshot?.version,salesHashes:sheetSnapshot?.hashes,checkedAt:sheetChecked,scores:manifest?.files?.scores});
 const sheetCacheKey='googleSales:v5:'+salesSheet.id;
 const say=message=>{$('sharedStatus').textContent=message;};
 async function request(path,options={}){
@@ -118,7 +119,7 @@ async function sync(){
   if(version!==installedVersion){installFiles(files,next);installedVersion=version;}
   clearError();salesSourceStatus();
  }catch(error){sheetFailure=error.message;if(manifest)salesSourceStatus();else{say('Could not load dashboard data: '+error.message);$('connectionText').textContent='Data unavailable';$('googleSalesStatus').textContent='Could not load Google Sheet sales. '+error.message;}showError(error.message);}
- finally{loading=false;controls();}
+ finally{loading=false;controls();window.evisPromoterIncentives?.render();}
 }
 async function uploadBlob(file){
  const blob=await new Response(new Blob([JSON.stringify(file)]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
