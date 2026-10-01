@@ -1,10 +1,11 @@
 const fs=require('node:fs/promises'),path=require('node:path');
 const {hashToken,hashPassword,checkPassword,username,token}=require('./security.cjs');
 const {loadReport}=require('./credit-memos.cjs');
+const {loadInventory}=require("./inventory-data.cjs");
 const incentiveLocks=require('./incentive-locks.cjs');
 const canReadCM=u=>u.role==='admin'||u.credit_memos===true;
 const SB='https://fuvlhwoauzvgrbakihsj.supabase.co',COOKIE='__Host-wvis_session',ADMIN='lucasngrealme@gmail.com';
-const assets=new Set(['index.html','app.js','styles.css','scoring.js','performance.js','model-history.js','price-ranges.js','active-promoters.js','productivity.js','push-models.js','asm-incentives.js','incentive-core.js','incentive-locks.js','promoter-incentives.js','overview-views.js','zero-sellout.js','fullscreen.js','sorting.js','shared-data.js','config.js','accounts.js','credit-memos.js']);
+const assets=new Set(["inventory.js",'index.html','app.js','styles.css','scoring.js','performance.js','model-history.js','price-ranges.js','active-promoters.js','productivity.js','push-models.js','asm-incentives.js','incentive-core.js','incentive-locks.js','promoter-incentives.js','overview-views.js','zero-sellout.js','fullscreen.js','sorting.js','shared-data.js','config.js','accounts.js','credit-memos.js']);
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 async function sb(route,options={}){const key=process.env.SUPABASE_SERVICE_ROLE_KEY;if(!key)fail(503,'Account service is not configured.');const r=await fetch(SB+route,{...options,headers:{apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json',...options.headers},signal:AbortSignal.timeout(25000)});if(!r.ok)fail(r.status===409?409:502,r.status===409?'Username already exists or data changed.':'Account/data service could not complete the request.');if(r.status===204)return null;const payload=await r.text();return payload?JSON.parse(payload):null;}
 const db=(table,query='',options={})=>sb('/rest/v1/'+table+query,options);
@@ -28,6 +29,7 @@ module.exports=async(req,res)=>{res.setHeader('Cache-Control','private, no-store
  if(op==='logout'){if(req.method!=='POST')fail(405,'Method not allowed.');await db('wvis_sessions','?token_hash=eq.'+hashToken(sessionToken(req)),{method:'DELETE'});cookie(res,'');return json(res,{ok:true});}
  if(op==='activity'){if(req.method!=='POST')fail(405,'Method not allowed.');await db('wvis_accounts','?id=eq.'+u.id,{method:'PATCH',body:JSON.stringify({last_active:new Date().toISOString()})});return json(res,{ok:true});}
  if(op==='dashboard'||op==='asset'){if(req.method!=='GET')fail(405,'Method not allowed.');return await readAsset(op==='dashboard'?'index.html':url.searchParams.get('name'),u,res);}
+ if(op==='inventory'){if(req.method!=='GET')fail(405,'Method not allowed.');return json(res,await loadInventory());}
  if(op==='credit-memos'){if(req.method!=='GET')fail(405,'Method not allowed.');if(!canReadCM(u))fail(403,'Credit Memo access has not been approved for this account.');return json(res,await loadReport(url.searchParams.get('refresh')==='1'));}
  if(op==='incentive-locks'){if(req.method==='POST')return json(res,await incentiveLocks.createLock(req,u));return json(res,url.searchParams.has('month')?await incentiveLocks.readLock(url.searchParams.get('month')):await incentiveLocks.listLocks());}
  if(op==='accounts'){if(u.role!=='admin')fail(403,'Administrator access required.');if(req.method==='GET')return json(res,{accounts:(await db('wvis_accounts','?select=id,username,role,enabled,last_login,last_active,credit_memos&order=username')).map(safe)});const b=await body(req);
