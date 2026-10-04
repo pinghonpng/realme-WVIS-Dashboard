@@ -82,7 +82,7 @@ function pushTrends(all,filters,campaign,key){
  return {weeks,months,complete,sum};
 }
 function pushDistribution(all,roster,filters,campaign,view){
- const blank=label=>({label,headcount:0,previousHeadcount:0,newHires:0,unknownHire:0,counts:[0,0,0,0],previousCounts:[0,0,0,0],people:[]});
+ const blank=label=>({label,headcount:0,previousHeadcount:0,newHires:0,unknownHire:0,counts:[0,0,0,0,0],previousCounts:[0,0,0,0,0],people:[]});
  const day=r=>productivityCalendarDay(r._date),monthRows=all.filter(r=>modelMonthKey(r._date)===filters.month&&day(r)!==null);
  const cutoff=monthRows.reduce((n,r)=>Math.max(n,day(r)),-Infinity),previousCutoff=cutoff-7;
  const [year,month]=filters.month.split('-').map(Number),start=Date.UTC(year,month-1,1)/86400000,coverage=new Set(monthRows.map(day));
@@ -97,7 +97,7 @@ function pushDistribution(all,roster,filters,campaign,view){
  const members=pushLatestPromoters(all.filter(r=>day(r)!==null&&day(r)<=cutoff),roster).filter(r=>['area','asm','customer','channel'].every(k=>passes(r['_'+k],filters[k]))&&(hires.get(r._ps)?.day==null||hires.get(r._ps).day<=cutoff));
  const mapped=psSalesReviewData(all,roster,{area:'ALL',asm:'ALL',customer:'ALL',channel:'ALL'},storeMap()).all,sales=new Map(),previousSales=new Map();
  mapped.forEach(r=>{const d=day(r),hired=hires.get(r._reviewPs)?.day;if(d===null||d<start||d>cutoff||(hired!=null&&d<hired)||!pushSeriesMatch(r._series,campaign)||!['area','asm','customer','channel','productType','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))return;sales.set(r._reviewPs,(sales.get(r._reviewPs)||0)+r._qty);if(d<=previousCutoff)previousSales.set(r._reviewPs,(previousSales.get(r._reviewPs)||0)+r._qty);});
- const bucket=q=>Math.min(3,Math.floor(Math.max(0,q||0))),groups=new Map();
+ const bucket=q=>q>=15?4:q>=8?3:q>=4?2:q>0?1:0,groups=new Map();
  if(pushSeriesVisible(campaign,filters.series)&&(filters.model==='ALL'||all.some(r=>r._model===filters.model&&pushSeriesMatch(r._series,campaign))))members.forEach(m=>{
   const label=m[key]||'Unassigned';if(!groups.has(label))groups.set(label,blank(label));const g=groups.get(label),hired=hires.get(m._ps)?.day;
   const units=Math.max(0,sales.get(m._ps)||0),unitBucket=bucket(units);
@@ -114,12 +114,12 @@ function pushDistributionIR(current,previous,bucket,available){
  if(!available||previous===0)return {text:'N/A',kind:'missing',symbol:''};
  const rate=modelRate(current,previous),symbol={up:'▲',down:'▼',steady:'━'}[rate.kind];
  // Arrows describe count direction; color describes whether that direction is desirable.
- const kind=rate.kind==='steady'?'steady':bucket===0?(rate.kind==='up'?'down':'up'):bucket===3?rate.kind:'neutral';
+ const kind=rate.kind==='steady'?'steady':bucket===0?(rate.kind==='up'?'down':'up'):bucket===4?rate.kind:'neutral';
  return {...rate,kind,symbol};
 }
 let pushDistributionDrilldowns=[];
 function pushDistributionDetail(g,dist,campaign,bucket){
- return {title:campaign.title+' · '+g.label+' · '+(bucket===null?'Active PS':['0 Units','1 Unit','2 Units','3+ Units'][bucket]),start:dist.start,cutoff:dist.cutoff,people:g.people.filter(p=>bucket===null||p.bucket===bucket)};
+ return {title:campaign.title+' · '+g.label+' · '+(bucket===null?'Active PS':['0 Sales','1–3 Sales','4–7 Sales','8–14 Sales','15+ Sales'][bucket]),start:dist.start,cutoff:dist.cutoff,people:g.people.filter(p=>bucket===null||p.bucket===bucket)};
 }
 function pushDistributionRow(g,dist,campaign){
  const title='Earlier active headcount: '+g.previousHeadcount+'. Known hires since earlier cutoff: '+g.newHires+'. Hire date unavailable: '+g.unknownHire+'.';
@@ -165,12 +165,12 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
    if(mode==='distribution')$('pushPeriod'+i).setAttribute('role','status');else $('pushPeriod'+i).removeAttribute('role');
    if(mode==='distribution'){
     const dist=pushDistribution(all,roster,filters,campaign,view);
-    table.tHead.innerHTML='<tr>'+[label,'Active PS','0 Units','1 Unit','2 Units','3+ Units'].map((x,n)=>'<th data-sort-column="'+n+'">'+x+'</th>').join('')+'</tr>';
+    table.tHead.innerHTML='<tr>'+[label,'Active PS','0 Sales','1–3 Sales','4–7 Sales','8–14 Sales','15+ Sales'].map((x,n)=>'<th data-sort-column="'+n+'">'+x+'</th>').join('')+'</tr>';
     const distributionRow=g=>pushDistributionRow(g,dist,campaign);
-    $('pushBody'+i).innerHTML=dist.groups.map(distributionRow).join('')||emptyRow(6);$('pushTotal'+i).innerHTML=distributionRow(dist.total);
+    $('pushBody'+i).innerHTML=dist.groups.map(distributionRow).join('')||emptyRow(7);$('pushTotal'+i).innerHTML=distributionRow(dist.total);
     $('pushPeriod'+i).textContent=Number.isFinite(dist.cutoff)?'MTD '+date(dist.start)+'–'+date(dist.cutoff)+' · Prev = MTD '+(dist.previousCutoff>=dist.start?date(dist.start)+'–'+date(dist.previousCutoff):'N/A (fewer than 8 days in this month)')+' · Current PS (% share), then Prev PS and IR.':'No sales dates available in the selected month.';
     if(i===0){
-     const note='Green: fewer at 0 units or more at 3+; red: the reverse. 1/2-unit changes are neutral; ±1% is blue/steady. Both snapshots use the current ACTIVE roster and the same assignments. Known hires since the earlier cutoff: '+dist.total.newHires+' (included now, excluded before hire; IR includes this headcount change).'+(dist.total.unknownHire?' Hire date unavailable: '+dist.total.unknownHire+'; included in both snapshots.':'')+(!dist.available?' IR unavailable until complete source date coverage is available for both MTD periods.':'');
+     const note='Green: fewer at 0 sales or more at 15+; red: the reverse. Changes in the 1–3, 4–7, and 8–14 groups are neutral; ±1% is blue/steady. Both snapshots use the current ACTIVE roster and the same assignments. Known hires since the earlier cutoff: '+dist.total.newHires+' (included now, excluded before hire; IR includes this headcount change).'+(dist.total.unknownHire?' Hire date unavailable: '+dist.total.unknownHire+'; included in both snapshots.':'')+(!dist.available?' IR unavailable until complete source date coverage is available for both MTD periods.':'');
      warnings.splice(0,warnings.length,...(!roster?['Waiting for the active promoter list.']:[]),note);
     }
     return;
