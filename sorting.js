@@ -60,14 +60,18 @@ function prepareSortableTables(){
     applyTableSort(table);
   });
 }
-const tableSortObserver=new MutationObserver(()=>refreshTableSorting());
+let tableSortQueued=false;
+const tableSortObserver=new MutationObserver(records=>{
+ if(tableSortQueued||!records.some(r=>r.target.nodeType===1&&(r.target.closest?.('thead,tbody')||[...r.addedNodes].some(n=>n.nodeType===1&&(n.matches('table,thead,tbody')||n.querySelector('table'))))))return;
+ tableSortQueued=true;requestAnimationFrame(()=>{tableSortQueued=false;refreshTableSorting();});
+});
 function refreshTableSorting(){
   tableSortObserver.disconnect();
   prepareSortableTables();
   refreshTableSummaries();
   prepareTableVisibility();
   coverInactiveCustomerTypes();
-  document.querySelectorAll('table tbody').forEach(body=>tableSortObserver.observe(body,{childList:true,subtree:true,characterData:true}));
+  tableSortObserver.observe(document.body,{childList:true,subtree:true,characterData:true});
 }
 const tableSortStyle=document.createElement('style');
 tableSortStyle.textContent='.table-sort-button{font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:inherit;width:100%}.table-sort-button:hover{color:#111;text-decoration:underline}.table-sort-button:focus-visible{outline:2px solid #9a7900;outline-offset:4px}th[aria-sort="ascending"],th[aria-sort="descending"]{color:#111}';

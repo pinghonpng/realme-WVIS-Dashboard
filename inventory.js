@@ -21,6 +21,32 @@
  const esc=s=>escapeHtml(String(s??'')),persist=()=>{try{localStorage.setItem('wvis.inventory.options',JSON.stringify(saved));}catch{}},options=(values,value,blank)=>`${blank?'<option value="">'+esc(blank)+'</option>':''}`+values.map(v=>'<option value="'+esc(v)+'"'+(v===value?' selected':'')+'>'+esc(v==='ALL'?'All dealers':v)+'</option>').join('');
  const select=(id,label,values,value,blank)=>'<label>'+esc(label)+'<select data-inv="'+id+'" aria-label="'+esc(label)+'">'+options(values,value,blank)+'</select></label>';
  const modelSelect=(id,value,i)=>'<select data-inv="'+id+'" aria-label="Model column '+(i+1)+'">'+options(data.models,value,'Select model')+'</select>';
+
+ function inventorySorting(container){
+  container.querySelectorAll('table').forEach(t=>{
+   [...t.tHead.rows[0].cells].forEach((th,col)=>{
+    if(th.querySelector('.table-sort-button'))return;
+    const select=th.querySelector('select'),label=select?(select.value||'Model column '+(col-1)):th.textContent.trim();
+    const b=document.createElement('button');b.type='button';b.className='table-sort-button';b.setAttribute('aria-label','Sort by '+label);b.textContent=select?'Sort ↕':label+' ↕';
+    th.setAttribute('aria-sort','none');if(select)th.append(b);else th.replaceChildren(b);
+    b.addEventListener('click',()=>{
+     const asc=th.getAttribute('aria-sort')!=='ascending';
+     [...t.tHead.rows[0].cells].forEach(h=>h.setAttribute('aria-sort',h===th?(asc?'ascending':'descending'):'none'));
+     [...t.tHead.rows[0].cells].forEach(h=>{const button=h.querySelector('.table-sort-button');button.textContent=(h.querySelector('select')?'Sort':button.getAttribute('aria-label').slice(8))+(h===th?(asc?' ↑':' ↓'):' ↕');});
+     const value=cell=>{const text=cell?.textContent.trim()||'';if(!text||['—','Unavailable','No inventory date'].includes(text))return null;
+      if(/date/i.test(label))return inventoryDay(text);
+      const numeric=text.replace(/[,％%*]/g,'').trim();return numeric!==''&&Number.isFinite(Number(numeric))?Number(numeric):text;
+     };
+     for(const body of t.tBodies){
+      const rows=[...body.rows];let segment=[];
+      const flush=()=>{const sorted=segment.map((row,index)=>({row,index,value:value(row.cells[col])})).sort((a,b)=>a.value===null?(b.value===null?a.index-b.index:1):b.value===null?-1:(asc?1:-1)*(typeof a.value==='number'&&typeof b.value==='number'?a.value-b.value:String(a.value).localeCompare(String(b.value),undefined,{numeric:true,sensitivity:'base'}))||a.index-b.index);
+       segment.forEach((row,i)=>row.before(document.createComment('inv-sort')));const markers=[...body.childNodes].filter(n=>n.nodeType===8);markers.forEach((m,i)=>m.replaceWith(sorted[i].row));segment=[];};
+      for(const row of rows){if(row.cells.length!==t.tHead.rows[0].cells.length||row.cells[0].textContent.trim()==='WVIS'){flush();continue;}segment.push(row);}flush();
+     }
+    });
+   });
+  });
+ }
  const number=v=>v==null?'—':Number(v).toLocaleString(undefined,{maximumFractionDigits:2});
  const qty=(s,m)=>!m?'<td></td>':'<td class="'+(s.stock[m]===0?'inv-zero':'')+'">'+number(s.stock[m])+'</td>';
  // Inventory owns its dropdown headers and grouped totals; generic sorting must not replace them.
@@ -28,7 +54,7 @@
  const empty=n=>'<tr><td colspan="'+n+'">NO PS STORE</td></tr>';
  let complianceGroups=[];
  const manilaToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
- function showNoUpdate(index){const group=complianceGroups[index];if(!group)return;document.getElementById('inventoryComplianceDialog')?.remove();const dialog=document.createElement('dialog');dialog.id='inventoryComplianceDialog';dialog.setAttribute('aria-labelledby','inventoryComplianceTitle');dialog.innerHTML='<div class="card-head"><h2 id="inventoryComplianceTitle">'+esc(group.label)+' · No Update</h2><button type="button" class="secondary-btn" data-close>Close</button></div><p>'+group.result.noUpdate.length+' stores · As of '+esc(group.today)+' (Philippine time)</p>'+table(['Store','Dealer','Area','Subregion','Last Inventory Date','Days Without Update'],group.result.noUpdate.map(s=>'<tr><td>'+esc(s.name)+'</td><td>'+esc(s.dealer)+'</td><td>'+esc(s.area)+'</td><td>'+esc(s.subregion)+'</td><td>'+esc(s.date||'No inventory date')+'</td><td>'+esc(s.age===null?'Unavailable':s.age<0?'Future date — review':s.age)+'</td></tr>').join('')||'<tr><td colspan="6">All stores updated.</td></tr>');document.body.append(dialog);dialog.querySelector('[data-close]').onclick=()=>dialog.close();dialog.addEventListener('close',()=>dialog.remove());dialog.showModal();}
+ function showNoUpdate(index){const group=complianceGroups[index];if(!group)return;document.getElementById('inventoryComplianceDialog')?.remove();const dialog=document.createElement('dialog');dialog.id='inventoryComplianceDialog';dialog.setAttribute('aria-labelledby','inventoryComplianceTitle');dialog.innerHTML='<div class="card-head"><h2 id="inventoryComplianceTitle">'+esc(group.label)+' · No Update</h2><button type="button" class="secondary-btn" data-close>Close</button></div><p>'+group.result.noUpdate.length+' stores · As of '+esc(group.today)+' (Philippine time)</p>'+table(['Store','Dealer','Area','Subregion','Last Inventory Date','Days Without Update'],group.result.noUpdate.map(s=>'<tr><td>'+esc(s.name)+'</td><td>'+esc(s.dealer)+'</td><td>'+esc(s.area)+'</td><td>'+esc(s.subregion)+'</td><td>'+esc(s.date||'No inventory date')+'</td><td>'+esc(s.age===null?'Unavailable':s.age<0?'Future date — review':s.age)+'</td></tr>').join('')||'<tr><td colspan="6">All stores updated.</td></tr>');document.body.append(dialog);dialog.querySelector('[data-close]').onclick=()=>dialog.close();dialog.addEventListener('close',()=>dialog.remove());inventorySorting(dialog);dialog.showModal();}
  function render(){
   const roster=root.evisRoster?.getRoster();
   section.innerHTML='<article class="card table-card"><div class="card-head"><h2>PS Store Inventory</h2><button type="button" class="secondary-btn" data-inv-refresh '+(busy?'disabled':'')+'>'+(busy?'Checking…':'Refresh inventory')+'</button></div><div class="inv-tabs" role="group" aria-label="Inventory views">'+[['summary','Store Coverage Summary'],['zero','Zero Stocks Store Check'],['dealer','per DEALER CHECKING'],['store','per STORE CHECKING'],['compliance','Inventory Compliance']].map(([id,label])=>'<button class="secondary-btn" data-inv-view="'+id+'" aria-pressed="'+(view===id)+'">'+label+'</button>').join('')+'</div><p class="score-note" role="status">'+esc(error||(data?'INVENTORY per STORE · Checked '+new Date(data.checkedAt).toLocaleString():'Loading inventory…'))+'</p></article><div id="inventoryContent"></div>';
@@ -52,6 +78,7 @@
   }else{
    if(!subs.includes(saved.geo))saved.geo=subs[0]||'';const list=stores.filter(s=>s.subregion===saved.geo);if(!list.some(s=>s.id===saved.store))saved.store=list[0]?.id||'';const s=list.find(s=>s.id===saved.store);content.innerHTML+='<article class="card table-card"><div class="inv-controls">'+select('geo','Subregion',subs,saved.geo)+'<label>Store<select data-inv="store" aria-label="Store">'+list.map(s=>'<option value="'+esc(s.id)+'"'+(s.id===saved.store?' selected':'')+'>'+esc(s.name)+'</option>').join('')+'</select></label></div>'+(s?'<p><strong>Dealer:</strong> '+esc(s.dealer)+' · <strong>Last Inventory Date:</strong> '+esc(s.date||'Unavailable')+'</p>'+table(['Model','Inventory'],data.models.map(m=>'<tr><td>'+esc(m)+'</td>'+qty(s,m)+'</tr>').join('')):'<p>NO PS STORE</p>')+'</article>';
   }
+  inventorySorting(content);
  }
  async function load(){if(busy)return;busy=true;render();try{const r=await fetch('/api/gateway?op=inventory',{cache:'no-store'});if(!r.ok)throw new Error('Inventory could not be loaded. Try Refresh inventory.');data=await r.json();error='';}catch(e){error=(data?'Showing last loaded inventory. ':'')+e.message;}finally{busy=false;render();}}
  section.addEventListener('click',e=>{const b=e.target.closest('[data-inv-view]');if(b){view=b.dataset.invView;render();}if(e.target.closest('[data-inv-refresh]'))load();});

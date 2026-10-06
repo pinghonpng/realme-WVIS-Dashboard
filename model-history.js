@@ -199,7 +199,7 @@ const renderBeforeFinancials=render;render=()=>{renderBeforeFinancials();renderF
  for(const [id,title,label] of [['seriesTableBody','Series Performance','Series'],['priceRangeTableBody','Price Range Performance','Price Range'],['areaPerformanceBody','Area Performance','Area'],['subregionPerformanceBody','Subregion Performance','Subregion'],['channelPerformanceBody','Channel Performance','Channel']]){
   const card=source.cloneNode(true);card.querySelector('h2').textContent=title;card.querySelector('tbody').id=id;
   card.querySelector('table').setAttribute('aria-label',title);card.querySelector('th').textContent=label;
-  if(id==='priceRangeTableBody')card.querySelector('table').setAttribute('data-no-sort','');
+  if(id==='priceRangeTableBody')card.querySelector('table').removeAttribute('data-no-sort');
   overview.append(card);
  }
  const before=render;render=()=>{before();renderModelHistory(state.filteredSales,'seriesTableBody','_series','Series');renderModelHistory(state.filteredSales,'priceRangeTableBody','_priceRange','Price Range');renderModelHistory(state.filteredSales,'areaPerformanceBody','_area','Area');renderModelHistory(state.filteredSales,'subregionPerformanceBody','_asm','Subregion');renderModelHistory(state.filteredSales,'channelPerformanceBody','_channel','Channel');};
