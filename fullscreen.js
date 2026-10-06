@@ -114,7 +114,7 @@
   if(!layout.actual){layout.frame.scrollLeft=0;layout.frame.scrollTop=0;}
   const available=layout.frame.clientWidth;if(!available)return;
   // Preserve all columns and fit the existing table without duplicating data or event handlers.
-  const naturalWidth=Math.max(available,columns*88+80);
+  const naturalWidth=Math.max(available,table.classList.contains('inv-dealer-table')?1100:columns*88+80);
   table.style.setProperty('--mobile-table-width',naturalWidth+'px');
   const width=Math.max(table.offsetWidth,table.scrollWidth),scale=layout.actual?1:Math.min(1,available/width);
   table.style.setProperty('--mobile-table-scale',String(scale));
@@ -183,7 +183,7 @@
   apply();media.addEventListener('change',()=>{if(preference===null)apply();});
   new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true,characterData:true});
   // Tab changes, expanded cards, open dialogs and device rotation can change available width.
-  document.addEventListener('click',schedule);document.addEventListener('change',schedule);document.addEventListener('toggle',schedule,true);window.addEventListener('resize',schedule);
+  document.addEventListener('click',schedule);document.addEventListener('change',schedule);document.addEventListener('toggle',schedule,true);window.addEventListener('resize',schedule);window.addEventListener('orientationchange',schedule);window.visualViewport?.addEventListener('resize',schedule);
   document.fonts?.ready.then(schedule);
  }
  const style=document.createElement('style');style.textContent=`
