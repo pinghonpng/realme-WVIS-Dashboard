@@ -81,14 +81,20 @@ function pushTrends(all,filters,campaign,key){
  const sum=labels=>{const g=blank();labels.forEach(label=>{const v=buckets.get(label);if(v){v.weeks.forEach((q,i)=>g.weeks[i]+=q);Object.entries(v.months).forEach(([m,q])=>g.months[m]=(g.months[m]||0)+q);}});return g;};
  return {weeks,months,complete,sum};
 }
+function pushSnapshotPeriods(all,month){
+ const day=r=>productivityCalendarDay(r._date),cutoff=all.filter(r=>modelMonthKey(r._date)===month).reduce((n,r)=>Math.max(n,day(r)??-Infinity),-Infinity);
+ const previousCutoff=cutoff-7,d=new Date(previousCutoff*86400000),[year,m]=month.split('-').map(Number);
+ const start=Date.UTC(year,m-1,1)/86400000,previousStart=Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),1)/86400000;
+ const previousMonth=Number.isFinite(previousCutoff)?d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0'):'';
+ const coverage=new Set(all.map(day).filter(d=>d!==null));
+ const covered=(a,b)=>{if(!Number.isFinite(a)||!Number.isFinite(b))return false;for(let d=a;d<=b;d++)if(!coverage.has(d))return false;return true;};
+ return {cutoff,previousCutoff,start,previousStart,previousMonth,available:covered(start,cutoff)&&covered(previousStart,previousCutoff)};
+}
 function pushDistribution(all,roster,filters,campaign,view){
  const blank=label=>({label,headcount:0,previousHeadcount:0,newHires:0,unknownHire:0,counts:[0,0,0,0,0],previousCounts:[0,0,0,0,0],people:[]});
- const day=r=>productivityCalendarDay(r._date),monthRows=all.filter(r=>modelMonthKey(r._date)===filters.month&&day(r)!==null);
- const cutoff=monthRows.reduce((n,r)=>Math.max(n,day(r)),-Infinity),previousCutoff=cutoff-7;
- const [year,month]=filters.month.split('-').map(Number),start=Date.UTC(year,month-1,1)/86400000,coverage=new Set(monthRows.map(day));
- let available=Number.isFinite(cutoff)&&previousCutoff>=start;
- if(available)for(let d=start;d<=cutoff;d++)if(!coverage.has(d)){available=false;break;}
- const result={groups:[],total:blank('WVIS'),cutoff,previousCutoff,start,available};
+ const day=r=>productivityCalendarDay(r._date);
+ const {cutoff,previousCutoff,start,previousStart,available}=pushSnapshotPeriods(all,filters.month);
+ const result={groups:[],total:blank('WVIS'),cutoff,previousCutoff,start,previousStart,available};
  if(!roster||!['ALL','SMARTPHONE'].includes(filters.productType)||!Number.isFinite(cutoff))return result;
  const key={area:'_area',subregion:'_asm',dealer:'_customer',channel:'_channel'}[view];
  // Keep today's ACTIVE roster and the same assignments for both snapshots. Known hires
@@ -96,7 +102,7 @@ function pushDistribution(all,roster,filters,campaign,view){
  const hires=performanceHireDates(all,roster.entries,cutoff);
  const members=pushLatestPromoters(all.filter(r=>day(r)!==null&&day(r)<=cutoff),roster).filter(r=>['area','asm','customer','channel'].every(k=>passes(r['_'+k],filters[k]))&&(hires.get(r._ps)?.day==null||hires.get(r._ps).day<=cutoff));
  const mapped=psSalesReviewData(all,roster,{area:'ALL',asm:'ALL',customer:'ALL',channel:'ALL'},storeMap()).all,sales=new Map(),previousSales=new Map();
- mapped.forEach(r=>{const d=day(r),hired=hires.get(r._reviewPs)?.day;if(d===null||d<start||d>cutoff||(hired!=null&&d<hired)||!pushSeriesMatch(r._series,campaign)||!['area','asm','customer','channel','productType','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))return;sales.set(r._reviewPs,(sales.get(r._reviewPs)||0)+r._qty);if(d<=previousCutoff)previousSales.set(r._reviewPs,(previousSales.get(r._reviewPs)||0)+r._qty);});
+ mapped.forEach(r=>{const d=day(r),hired=hires.get(r._reviewPs)?.day;if(d===null||d<Math.min(start,previousStart)||d>cutoff||(hired!=null&&d<hired)||!pushSeriesMatch(r._series,campaign)||!['area','asm','customer','channel','productType','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))return;if(d>=start)sales.set(r._reviewPs,(sales.get(r._reviewPs)||0)+r._qty);if(d>=previousStart&&d<=previousCutoff)previousSales.set(r._reviewPs,(previousSales.get(r._reviewPs)||0)+r._qty);});
  const bucket=q=>q>=15?4:q>=8?3:q>=4?2:q>0?1:0,groups=new Map();
  if(pushSeriesVisible(campaign,filters.series)&&(filters.model==='ALL'||all.some(r=>r._model===filters.model&&pushSeriesMatch(r._series,campaign))))members.forEach(m=>{
   const label=m[key]||'Unassigned';if(!groups.has(label))groups.set(label,blank(label));const g=groups.get(label),hired=hires.get(m._ps)?.day;
@@ -119,9 +125,10 @@ function pushDistributionIR(current,previous,bucket,available){
 }
 
 const PUSH_SMARTPHONE_BANDS=['0 Sales','1–10 Sales','11–15 Sales','16–20 Sales','21–25 Sales','26–30 Sales','31+ Sales'];
-function pushSmartphoneHeadcount(all,roster,filters,view,selectedTypes){
+function pushSmartphoneHeadcount(all,roster,filters,view,selectedTypes,asOf=null){
+ if(asOf!==null)all=all.filter(r=>(productivityCalendarDay(r._date)??Infinity)<=asOf);
  const monthRows=all.filter(r=>modelMonthKey(r._date)===filters.month);
- const cutoff=monthRows.reduce((n,r)=>Math.max(n,productivityCalendarDay(r._date)??-Infinity),-Infinity);
+ const cutoff=asOf??monthRows.reduce((n,r)=>Math.max(n,productivityCalendarDay(r._date)??-Infinity),-Infinity);
  const blank=label=>({label,people:[],counts:Array(7).fill(0),headcount:0});
  const result={groups:[],total:blank('WVIS'),cutoff,unknown:0};
  if(!roster||!Number.isFinite(cutoff))return result;
@@ -165,7 +172,7 @@ function pushDistributionRow(g,dist,campaign){
   return '<button type="button" class="push-distribution-drilldown'+(bucket===null?' push-distribution-headcount':'')+'" data-push-distribution="'+index+'" aria-haspopup="dialog" aria-label="'+escapeHtml('Show current promoters: '+detail.title)+'">'+content+'</button>';
  };
  return '<tr><td>'+escapeHtml(g.label)+'</td><td data-sort-value="'+g.headcount+'" title="'+title+'">'+button(fmt(g.headcount),null)+'</td>'+g.counts.map((q,n)=>{
-  const rate=pushDistributionIR(q,g.previousCounts[n],n,dist.available),prior=dist.available?'Previous MTD count: '+g.previousCounts[n]+'.':'Comparison unavailable: requires complete month-to-date source coverage and an earlier cutoff within the selected month.';
+  const rate=pushDistributionIR(q,g.previousCounts[n],n,dist.available),prior=dist.available?'Previous MTD count: '+g.previousCounts[n]+'.':'Comparison unavailable: requires complete source date coverage for both monthly snapshots.';
   const value='<span class="push-distribution-now">'+fmt(q)+' ('+pct(g.headcount?q/g.headcount*100:0)+')</span><span class="push-distribution-previous">Prev '+(dist.available?fmt(g.previousCounts[n]):'N/A')+' · <span class="model-rate '+rate.kind+'">'+(rate.symbol?rate.symbol+' ':'')+rate.text+'</span></span>';
   return '<td class="push-distribution-cell" data-sort-value="'+q+'" title="'+prior+' '+title+'">'+button(value,n)+'</td>';
  }).join('')+'</tr>';
@@ -181,7 +188,7 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
  const nav=document.createElement('button');nav.className='nav-item';nav.dataset.section='pushModels';nav.textContent='Push Model Performance';document.querySelector('.nav-item[data-section="dealers"]').before(nav);
  const section=document.createElement('section');section.id='pushModelsSection';section.className='dashboard-section';
  section.innerHTML='<div class="card push-controls"><div role="group" aria-label="Push performance mode"><button type="button" class="secondary-btn" data-push-mode="sales" aria-pressed="true">Sales Performance</button> <button type="button" class="secondary-btn" data-push-mode="distribution" aria-pressed="false">PS Distribution</button></div><label for="pushView">View by</label><select id="pushView"><option value="area">Area</option><option value="subregion">Subregion</option><option value="dealer">Dealer</option><option value="channel">Customer Type</option></select><p>Combined C100 + 16T sales; C100i is excluded. September retains each series’ original target and sales window (16T: September 4–15; C100: September 1–30). Other months use the full month to date.</p><p>Dealer and Customer Type targets: 50% of June–August unit-sales share in “more Php 13000” + 50% of current ACTIVE promoter headcount share. Each promoter counts once under their latest recorded dealer/customer type; without sales, HR dealer is used and customer type is Unassigned. Whole-unit allocations preserve each series total.</p><p>All universal filters apply to sales and displayed groups. Allocated targets stay fixed when filters narrow the view; they are not prorated for a model, price range, dealer, or customer type selection. Area targets combine the selected subregions. Gap is remaining units to target.</p><p id="pushNotice" role="status"></p></div>'+PUSH_CAMPAIGNS.map((c,i)=>'<article class="card table-card"><div class="card-head"><div><h2>'+c.title+'</h2><p id="pushPeriod'+i+'"></p></div></div><div class="table-wrap"><table class="model-history-table" aria-label="'+c.title+' push performance"><thead><tr><th>Area</th><th>Target</th><th>Sales</th><th>Achievement %</th><th>Gap (Shortfall Share)</th></tr></thead><tbody id="pushBody'+i+'"></tbody><tfoot id="pushTotal'+i+'"></tfoot></table></div></article>').join('');
- section.insertAdjacentHTML('beforeend','<article id="pushHeadcountCard" class="card table-card" hidden><div class="card-head"><h2>All Smartphone Sales · Promoter Headcount</h2></div><div class="push-headcount-types" role="group" aria-label="Included promoter types">'+['REG PS','NHT','RESIGNED'].map(t=>'<button type="button" class="secondary-btn" data-push-headcount-type="'+t+'" aria-pressed="true">'+t+'</button>').join(' ')+'</div><p id="pushHeadcountNote"></p><div class="table-wrap"><table class="model-history-table" aria-label="All smartphone promoter headcount"><thead id="pushHeadcountHead"></thead><tbody id="pushHeadcountBody"></tbody><tfoot id="pushHeadcountTotal"></tfoot></table></div></article>');
+ section.insertAdjacentHTML('beforeend','<article id="pushHeadcountCard" class="card table-card" hidden><div class="card-head"><h2>All Smartphone Sales · Promoter Headcount</h2></div><div class="push-headcount-types" role="group" aria-label="Included promoter types">'+['REG PS','NHT','RESIGNED'].map(t=>'<button type="button" class="secondary-btn" data-push-headcount-type="'+t+'" aria-pressed="true">'+t+'</button>').join(' ')+'</div><p id="pushHeadcountNote"></p><div class="table-wrap"><table class="model-history-table push-performance-table" aria-label="All smartphone promoter headcount"><thead id="pushHeadcountHead"></thead><tbody id="pushHeadcountBody"></tbody><tfoot id="pushHeadcountTotal"></tfoot></table></div></article>');
  $('dealersSection').before(section);
  const style=document.createElement('style');style.textContent='.push-controls [role=group]{margin-bottom:12px}button[data-push-headcount-type][aria-pressed="true"],button[data-push-mode][aria-pressed="true"]{background:#fff2bc;border-color:#d4ad20;color:#111}.push-controls{padding:20px;margin-bottom:18px}.push-controls select{margin-left:12px;padding:8px;border:1px solid #d8dce2;border-radius:6px;background:white;font:inherit}.push-controls p{font-size:12px;color:#69717e;line-height:1.5}#pushModelsSection .table-card{margin-bottom:18px}#pushModelsSection th,#pushModelsSection td{border:1px solid #d8dce2;text-align:center}';document.head.append(style);
  let mode='sales';const headcountTypes=new Set(['REG PS','NHT','RESIGNED']);
@@ -205,7 +212,7 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
     table.tHead.innerHTML='<tr>'+[label,'Active PS','0 Sales','1–3 Sales','4–7 Sales','8–14 Sales','15+ Sales'].map((x,n)=>'<th data-sort-column="'+n+'">'+x+'</th>').join('')+'</tr>';
     const distributionRow=g=>pushDistributionRow(g,dist,campaign);
     $('pushBody'+i).innerHTML=dist.groups.map(distributionRow).join('')||emptyRow(7);$('pushTotal'+i).innerHTML=distributionRow(dist.total);
-    $('pushPeriod'+i).textContent=Number.isFinite(dist.cutoff)?'MTD '+date(dist.start)+'–'+date(dist.cutoff)+' · Prev = MTD '+(dist.previousCutoff>=dist.start?date(dist.start)+'–'+date(dist.previousCutoff):'N/A (fewer than 8 days in this month)')+' · Current PS (% share), then Prev PS and IR.':'No sales dates available in the selected month.';
+    $('pushPeriod'+i).textContent=Number.isFinite(dist.cutoff)?'MTD '+date(dist.start)+'–'+date(dist.cutoff)+' · Prev = MTD '+date(dist.previousStart)+'–'+date(dist.previousCutoff)+' · Current PS (% share), then Prev PS and IR.':'No sales dates available in the selected month.';
     if(i===0){
      const note='Green: fewer at 0 sales or more at 15+; red: the reverse. Changes in the 1–3, 4–7, and 8–14 groups are neutral; ±1% is blue/steady. Both snapshots use the current ACTIVE roster and the same assignments. Known hires since the earlier cutoff: '+dist.total.newHires+' (included now, excluded before hire; IR includes this headcount change).'+(dist.total.unknownHire?' Hire date unavailable: '+dist.total.unknownHire+'; included in both snapshots.':'')+(!dist.available?' IR unavailable until complete source date coverage is available for both MTD periods.':'');
      warnings.splice(0,warnings.length,...(!roster?['Waiting for the active promoter list.']:[]),note);
@@ -219,15 +226,24 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
    $('pushBody'+i).innerHTML=report.groups.map(g=>row(g,shortfall).replace('</tr>',trendCells([g.label])+'</tr>')).join('')||emptyRow(12);$('pushTotal'+i).innerHTML=row(report.total,shortfall,true).replace('</tr>',trendCells(report.groups.map(g=>g.label))+'</tr>');
   });
   $('pushHeadcountCard').hidden=mode!=='distribution';
-  const hc=pushSmartphoneHeadcount(all,roster,filters,view,headcountTypes),hcLabel={area:'Area',subregion:'Subregion',dealer:'Dealer',channel:'Customer Type'}[view];
+  const snapshots=pushSnapshotPeriods(all,filters.month);
+  const hc=pushSmartphoneHeadcount(all,roster,filters,view,headcountTypes);
+  const previousHC=snapshots.previousMonth?pushSmartphoneHeadcount(all,roster,{...filters,month:snapshots.previousMonth},view,headcountTypes,snapshots.previousCutoff):{groups:[],total:{headcount:0,counts:Array(7).fill(0)}};
+  const previousGroups=new Map(previousHC.groups.map(g=>[g.label,g]));
+  previousHC.groups.forEach(g=>{if(!hc.groups.some(n=>n.label===g.label))hc.groups.push({label:g.label,headcount:0,counts:Array(7).fill(0),people:[]});});
+  hc.groups.sort((a,b)=>a.label.localeCompare(b.label));
+  const hcLabel={area:'Area',subregion:'Subregion',dealer:'Dealer',channel:'Customer Type'}[view];
   $('pushHeadcountHead').innerHTML='<tr>'+[hcLabel,'PS Headcount',...PUSH_SMARTPHONE_BANDS].map((h,n)=>'<th data-sort-column="'+n+'">'+h+'</th>').join('')+'</tr>';
-  const hcRow=g=>'<tr><td>'+escapeHtml(g.label)+'</td>'+[null,0,1,2,3,4,5,6].map(b=>{
+  const hcRow=(g,isTotal=false)=>'<tr><td>'+escapeHtml(g.label)+'</td>'+[null,0,1,2,3,4,5,6].map(b=>{
    const people=g.people.filter(p=>b===null||p.bucket===b).map(p=>({...p,_name:p._name+' · '+p.type}));
    const index=pushDistributionDrilldowns.push({allSmartphones:true,title:'All smartphones · '+g.label+' · '+(b===null?'All promoters':PUSH_SMARTPHONE_BANDS[b]),start:Date.UTC(...[...filters.month.split('-').map((n,i)=>Number(n)-(i===1?1:0)),1])/86400000,cutoff:hc.cutoff,people})-1;
-   return '<td data-sort-value="'+people.length+'"><button type="button" class="push-distribution-drilldown" data-push-distribution="'+index+'" aria-haspopup="dialog">'+fmt(people.length)+'</button></td>';
+   const prev=isTotal?previousHC.total:previousGroups.get(g.label),prior=b===null?(prev?.headcount||0):(prev?.counts[b]||0);
+   const rate=pushDistributionIR(people.length,prior,b===6?4:b===0?0:1,snapshots.available);
+   const current=fmt(people.length)+(b===null?'':' ('+pct(g.headcount?people.length/g.headcount*100:0)+')');
+   return '<td class="push-distribution-cell" data-sort-value="'+people.length+'"><button type="button" class="push-distribution-drilldown" data-push-distribution="'+index+'" aria-haspopup="dialog"><span class="push-distribution-now">'+current+'</span><span class="push-distribution-previous">Prev '+(snapshots.available?fmt(prior):'N/A')+' · <span class="model-rate '+rate.kind+'">'+rate.symbol+' '+rate.text+'</span></span></button></td>';
   }).join('')+'</tr>';
-  $('pushHeadcountBody').innerHTML=hc.groups.map(hcRow).join('')||emptyRow(9);$('pushHeadcountTotal').innerHTML=hcRow(hc.total);
-  $('pushHeadcountNote').textContent=monthName(filters.month)+' · All smartphone models. Month and geography/dealer/customer-type filters apply; product, model, series and price-range filters do not narrow this table. Selected buttons include those groups. REG PS: 30+ days at the month’s uploaded cutoff; NHT: under 30 days (sales role used when hire date is unavailable). RESIGNED: monthly sellers absent from the current active list, not confirmed historical resignation status. Current active zero sellers are included; known hires after the cutoff are excluded.'+(!roster?' Waiting for active promoter list.':'')+(!Number.isFinite(hc.cutoff)?' No sales data for this month.':'')+(hc.unknown?' '+hc.unknown+' active promoters have unknown type; included only when all three groups are selected.':'');
+  $('pushHeadcountBody').innerHTML=hc.groups.map(g=>hcRow(g)).join('')||emptyRow(9);$('pushHeadcountTotal').innerHTML=hcRow(hc.total,true);
+  $('pushHeadcountNote').textContent=monthName(filters.month)+' · MTD '+date(snapshots.start)+'–'+date(snapshots.cutoff)+' · Prev = MTD '+date(snapshots.previousStart)+'–'+date(snapshots.previousCutoff)+'. '+(!snapshots.available?'Previous comparison unavailable: missing source dates. ':'')+'All smartphone models. Month and geography/dealer/customer-type filters apply; product, model, series and price-range filters do not narrow this table. Selected buttons include those groups. REG PS: 30+ days at the month’s uploaded cutoff; NHT: under 30 days (sales role used when hire date is unavailable). RESIGNED: monthly sellers absent from the current active list, not confirmed historical resignation status. Current active zero sellers are included; known hires after the cutoff are excluded.'+(!roster?' Waiting for active promoter list.':'')+(!Number.isFinite(hc.cutoff)?' No sales data for this month.':'')+(hc.unknown?' '+hc.unknown+' active promoters have unknown type; included only when all three groups are selected.':'');
   $('pushNotice').textContent=warnings.join(' ');
  }
  section.addEventListener('click',e=>{const b=e.target.closest('[data-push-headcount-type]');if(!b)return;const type=b.dataset.pushHeadcountType;headcountTypes.has(type)?headcountTypes.delete(type):headcountTypes.add(type);b.setAttribute('aria-pressed',String(headcountTypes.has(type)));resetPushSort();renderPushModels();});
