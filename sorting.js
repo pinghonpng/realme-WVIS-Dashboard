@@ -12,7 +12,7 @@ function compareTableValues(a,b,numeric,direction){
   if(b===null)return -1;
   return direction*(numeric?a.number-b.number:tableCollator.compare(a.text,b.text));
 }
-function sortableTableHeaders(table){const columns=[...table.tHead.querySelectorAll('th[data-sort-column]')];return columns.length?columns:[...table.tHead.rows[0].cells];}
+function sortableTableHeaders(table){const head=table.tHead;if(!head?.rows.length)return [];const columns=[...head.querySelectorAll('th[data-sort-column]')];return columns.length?columns:[...head.rows[0].cells];}
 function customerTypeColumn(table){return sortableTableHeaders(table).findIndex(h=>/^(customer type|channel)$/i.test(h.textContent.replace(/[↕↑↓]/g,'').trim()));}
 function orderCustomerTypes(table,column){
  const rank=value=>{const i=['nka','rka','sme','inactive'].indexOf(value.trim().toLowerCase());return i<0?4:i;};
@@ -36,7 +36,7 @@ function applyTableSort(table){
 }
 function prepareSortableTables(){
   document.querySelectorAll('table').forEach(table=>{
-    if(table.hasAttribute('data-no-sort')||!table.tHead||!table.tBodies.length)return;
+    if(table.hasAttribute('data-no-sort')||!table.tHead?.rows.length||!table.tBodies.length)return;
     const typeColumn=customerTypeColumn(table);if(typeColumn>=0){orderCustomerTypes(table,typeColumn);return;}
     sortableTableHeaders(table).forEach((header,column)=>{
       if(header.querySelector('.table-sort-button'))return;
@@ -92,7 +92,7 @@ function summarySum(rows,column){
 function refreshTableSummaries(){
  const sums={topStoresBody:[3],bottomStoresBody:[3],storeTableBody:[5,6],psTableBody:[4],promoterScoreBody:[2,3,4,6],subregionScoreBody:[1,2,3],performanceareaBody:[1,2,4,5,6,7],performancesubregionBody:[1,2,4,5,6,7]};
  document.querySelectorAll('table').forEach(table=>{
-  if(table.hasAttribute('data-no-sort')||!table.tHead||!table.tBodies.length)return;
+  if(table.hasAttribute('data-no-sort')||!table.tHead?.rows.length||!table.tBodies.length)return;
   if(table.tFoot&&(table.tFoot.dataset.summary==='history'||!table.tFoot.hasAttribute('data-summary-auto')))return;
   const body=table.tBodies[0],id=body.id,columns=sortableTableHeaders(table).length;
   if(id==='lineupTableBody'){if(table.tFoot?.hasAttribute('data-summary-auto'))table.tFoot.remove();return;}
