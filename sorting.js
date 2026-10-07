@@ -13,7 +13,7 @@ function compareTableValues(a,b,numeric,direction){
   return direction*(numeric?a.number-b.number:tableCollator.compare(a.text,b.text));
 }
 function sortableTableHeaders(table){const head=table.tHead;if(!head?.rows.length)return [];const columns=[...head.querySelectorAll('th[data-sort-column]')];return columns.length?columns:[...head.rows[0].cells];}
-function customerTypeColumn(table){return sortableTableHeaders(table).findIndex(h=>/^(customer type|channel)$/i.test(h.textContent.replace(/[↕↑↓]/g,'').trim()));}
+function customerTypeColumn(table){if(table.hasAttribute('data-preserve-customer-types'))return -1;return sortableTableHeaders(table).findIndex(h=>/^(customer type|channel)$/i.test(h.textContent.replace(/[↕↑↓]/g,'').trim()));}
 function orderCustomerTypes(table,column){
  const rank=value=>{const i=['nka','rka','sme','inactive'].indexOf(value.trim().toLowerCase());return i<0?4:i;};
  tableSortState.delete(table);
