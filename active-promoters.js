@@ -29,9 +29,9 @@ function activePerformanceRows(rows,roster,filters,stores){
 }
 (()=>{
  const defaultConfig={url:'https://docs.google.com/spreadsheets/d/1m6k6RlB3hIwMkBC1lJcZwQpB51lyoFUO8zChpvzlCPM/edit',tab:'HR PS STATUS'};
- let config=null,roster=null,checking=false,generation=0,lastChecked=null;
+ let config=null,roster=null,checking=false,generation=0,lastChecked=null,etag=null;
  const panel=document.createElement('article');panel.className='card table-card';
- panel.innerHTML='<div class="card-head"><div><h2>Active Promoters · Google Sheet</h2><p>Current HR status applies to every sales month. Google Sheet changes are checked every minute while this dashboard is open.</p></div></div><form id="rosterForm"><label for="rosterUrl">Public Google Sheet link</label><input id="rosterUrl" type="url" required><label for="rosterTab">Sheet tab</label><input id="rosterTab" required value="HR PS STATUS"><button type="submit" class="secondary-btn" id="rosterSave" disabled>Save shared sheet link</button><button type="button" class="secondary-btn" id="rosterRefresh">Check now</button></form><p id="rosterStatus" class="score-note" role="status">Connecting to HR list…</p><p class="score-note">Required headers: PS NAME and STATUS (ACTIVE). Codes at the start of PS NAME take priority, followed by ID NUMBER, then name matching when no code is available. Missing active-list members are tagged Resigned in red. Historical sales stay included in the other dashboard tabs; Promoter Score includes current ACTIVE promoters only. Sign in as administrator to change the shared source.</p>';
+ panel.innerHTML='<div class="card-head"><div><h2>Active Promoters · Google Sheet</h2><p>Current HR status applies to every sales month. Google Sheet changes are checked every 15 minutes while you use the dashboard; checks pause after 5 minutes idle or when hidden.</p></div></div><form id="rosterForm"><label for="rosterUrl">Public Google Sheet link</label><input id="rosterUrl" type="url" required><label for="rosterTab">Sheet tab</label><input id="rosterTab" required value="HR PS STATUS"><button type="submit" class="secondary-btn" id="rosterSave" disabled>Save shared sheet link</button><button type="button" class="secondary-btn" id="rosterRefresh">Check now</button></form><p id="rosterStatus" class="score-note" role="status">Connecting to HR list…</p><p class="score-note">Required headers: PS NAME and STATUS (ACTIVE). Codes at the start of PS NAME take priority, followed by ID NUMBER, then name matching when no code is available. Missing active-list members are tagged Resigned in red. Historical sales stay included in the other dashboard tabs; Promoter Score includes current ACTIVE promoters only. Sign in as administrator to change the shared source.</p>';
  $('dataSection').append(panel);
  document.querySelectorAll('#promotersSection .score-note').forEach(el=>{
   if(el.textContent.startsWith('Promoters with sales records'))el.textContent='Current ACTIVE promoters matching the territory, customer and channel filters are listed, including zero sales for the selected month, model and series.';
@@ -54,27 +54,28 @@ function activePerformanceRows(rows,roster,filters,stores){
    });
   }
  }
- async function check(){
-  if(checking||!config)return;checking=true;const epoch=generation;
+ async function check(force=false){
+  if(checking||!config)return;checking=true;window.evisRefresh?.mark('roster');const epoch=generation;
   try{
    const id=sheetIdFromUrl(config.url);if(!id)throw new Error('Enter a valid Google Sheets link.');
-   const response=await fetch('/api/gateway?op=sheet&slot=hr',{cache:'no-store',signal:AbortSignal.timeout(25000)});
+   const response=await fetch('/api/gateway?op=sheet&slot=hr'+(force?'&refresh=1':''),{cache:'no-store',headers:roster&&etag?{'If-None-Match':etag}:{},signal:AbortSignal.timeout(45000)});
+   if(response.status===304&&roster&&epoch===generation){lastChecked=new Date();$('rosterStatus').textContent=roster.count+' ACTIVE promoters · Last checked '+lastChecked.toLocaleString();return;}
    if(!response.ok)throw new Error('Google Sheet could not be read. Check server sheet access and the tab name.');
    const text=await response.text();if(/^\s*</.test(text))throw new Error('Google returned a page instead of data. Check server sheet access.');
    const next=rosterParse(parseCSV(text));if(epoch!==generation)return;
-   roster=next;lastChecked=new Date();$('rosterStatus').textContent=next.count+' ACTIVE promoters · Last checked '+lastChecked.toLocaleString();renderPromoters(state.filteredSales);decorate();window.evisProductivity?.render();window.evisPsSalesReview?.render();window.evisPushModels?.render();window.evisOverviewTargets?.render();window.evisAsmIncentives?.render();window.evisPromoterIncentives?.render();window.evisInventory?.render();
+   etag=response.headers.get('ETag');roster=next;lastChecked=new Date();$('rosterStatus').textContent=next.count+' ACTIVE promoters · Last checked '+lastChecked.toLocaleString();renderPromoters(state.filteredSales);decorate();window.evisProductivity?.render();window.evisPsSalesReview?.render();window.evisPushModels?.render();window.evisOverviewTargets?.render();window.evisAsmIncentives?.render();window.evisPromoterIncentives?.render();window.evisInventory?.render();
   }catch(error){if(epoch===generation)$('rosterStatus').textContent=(roster?'Using last verified HR list. ':'HR status unavailable; promoters are not marked resigned. ')+error.message;}
   finally{checking=false;if(epoch!==generation)check();}
  }
- function setConfig(next){next=next||defaultConfig;if(config&&config.url===next.url&&config.tab===next.tab)return;config={url:next.url,tab:next.tab};generation++;roster=null;decorate();window.evisPsSalesReview?.render();window.evisPushModels?.render();window.evisOverviewTargets?.render();window.evisAsmIncentives?.render();window.evisPromoterIncentives?.render();window.evisInventory?.render();$('rosterUrl').value=config.url;$('rosterTab').value=config.tab;check();}
- $('rosterRefresh').addEventListener('click',check);
- $('rosterForm').addEventListener('submit',async event=>{event.preventDefault();const next={url:$('rosterUrl').value.trim(),tab:$('rosterTab').value.trim()};try{const url=new URL(next.url);if(url.hostname!=='docs.google.com'||!sheetIdFromUrl(url.href)||!next.tab)throw new Error('Enter a public Google Sheets link and tab name.');await window.evisSaveRoster(next);await check();}catch(error){$('rosterStatus').textContent=error.message;}});
+ function setConfig(next){next=next||defaultConfig;if(config&&config.url===next.url&&config.tab===next.tab)return;config={url:next.url,tab:next.tab};generation++;roster=null;etag=null;decorate();window.evisPsSalesReview?.render();window.evisPushModels?.render();window.evisOverviewTargets?.render();window.evisAsmIncentives?.render();window.evisPromoterIncentives?.render();window.evisInventory?.render();$('rosterUrl').value=config.url;$('rosterTab').value=config.tab;check();}
+ $('rosterRefresh').addEventListener('click',()=>check(true));
+ $('refreshBtn').addEventListener('click',()=>check(true));
+ $('rosterForm').addEventListener('submit',async event=>{event.preventDefault();const next={url:$('rosterUrl').value.trim(),tab:$('rosterTab').value.trim()};try{const url=new URL(next.url);if(url.hostname!=='docs.google.com'||!sheetIdFromUrl(url.href)||!next.tab)throw new Error('Enter a public Google Sheets link and tab name.');await window.evisSaveRoster(next);await check(true);}catch(error){$('rosterStatus').textContent=error.message;}});
  window.evisRoster={getRoster:()=>roster,setConfig,setAdmin:(allowed)=>{['rosterUrl','rosterTab','rosterSave'].forEach(id=>$(id).disabled=!allowed);}};
  const beforePromoters=renderPromoters;renderPromoters=rows=>beforePromoters(performanceRows(rows));
  const beforeScores=renderScores;renderScores=rows=>beforeScores(performanceRows(rows));
  const before=render;render=()=>{before();decorate();};
- setInterval(()=>{if(document.visibilityState==='visible')check();},60000);
- document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')check();});
+ window.evisRefresh?.register('roster',()=>check());
  window.evisRoster.setAdmin(false);setConfig(defaultConfig);
 })();
 

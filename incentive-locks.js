@@ -5,7 +5,7 @@
  const notify=()=>window.evisPromoterIncentives?.render();
  const hash=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value))))].map(v=>v.toString(16).padStart(2,'0')).join('');
  async function request(url,options={}){const r=await fetch(url,{cache:'no-store',...options}),data=await r.json();if(!r.ok)throw new Error(data.error||'Could not load incentive archive.');return data;}
- async function refresh(){if(refreshing)return;refreshing=true;indexError='';try{index=(await request(endpoint)).months;}catch(e){index=null;indexError=e.message;}finally{refreshing=false;notify();}}
+ async function refresh(){if(refreshing)return;refreshing=true;window.evisRefresh?.mark('incentive-locks');indexError='';try{index=(await request(endpoint)).months;}catch(e){index=null;indexError=e.message;}finally{refreshing=false;notify();}}
  function state(month){
   if(index===null)return {blocked:true,message:indexError||'Checking locked computations…'};
   if(!index.includes(month))return {locked:false,roster:overrides.get(month)};
@@ -46,5 +46,6 @@
   }catch(e){saving=false;button.disabled=false;file.disabled=false;note.textContent=e.message;}};
  }
  window.evisIncentiveLocks={state,panel,months:()=>index||[],refresh};
- refresh();setInterval(refresh,60000);
+ window.evisRefresh?.register('incentive-locks',refresh);
+ $('refreshBtn').addEventListener('click',refresh);refresh();
 })();

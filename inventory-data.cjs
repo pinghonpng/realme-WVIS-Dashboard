@@ -2,8 +2,8 @@ const {csvGrid}=require('./inventory.js');
 const base='https://docs.google.com/spreadsheets/d/14lzoeyj9DAyJmgTR0lTQCcIPUDjsF0FbbEnivgGrJuI/gviz/tq?tqx=out:csv&headers=0&sheet=INVENTORY%20per%20STORE&range=';
 let cached,pending;
 async function read(range){const r=await fetch(base+encodeURIComponent(range),{signal:AbortSignal.timeout(40000)});if(!r.ok)throw new Error('Inventory sheet unavailable.');const text=await r.text();if(/^\s*</.test(text))throw new Error('Inventory sheet did not return data.');return csvGrid(text);}
-exports.loadInventory=async()=>{
- if(cached&&Date.now()-cached.time<60000)return cached.data;
+exports.loadInventory=async(force=false)=>{
+ if(!force&&cached&&Date.now()-cached.time<60000)return cached.data;
  if(pending)return pending;
  pending=(async()=>{
   const candidates=await Promise.all([read('K5:BS5'),read('K6:BS6')]);
