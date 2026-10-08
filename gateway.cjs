@@ -8,6 +8,14 @@ const canReadCM=u=>u.role==='admin'||u.credit_memos===true;
 const SB='https://fuvlhwoauzvgrbakihsj.supabase.co',COOKIE='__Host-wvis_session',ADMIN='lucasngrealme@gmail.com';
 const assets=new Set(['refresh-policy.js',"inventory.js",'index.html','app.js','styles.css','scoring.js','performance.js','model-history.js','price-ranges.js','active-promoters.js','productivity.js','push-models.js','asm-incentives.js','incentive-core.js','incentive-locks.js','promoter-incentives.js','overview-views.js','zero-sellout.js','fullscreen.js','sorting.js','shared-data.js','config.js','accounts.js','credit-memos.js']);
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
+function allowedOrigin(origin){
+ if(typeof origin!=='string')return false;
+ const configured=[process.env.DASHBOARD_ORIGIN,...(process.env.DASHBOARD_ADDITIONAL_ORIGINS||'').split(',')];
+ return configured.some(value=>{
+  const candidate=String(value||'').trim();if(!candidate)return false;
+  try{const parsed=new URL(candidate);return ['https:','http:'].includes(parsed.protocol)&&parsed.origin===candidate&&origin===candidate;}catch{return false;}
+ });
+}
 async function sb(route,options={}){const key=process.env.SUPABASE_SERVICE_ROLE_KEY;if(!key)fail(503,'Account service is not configured.');const r=await fetch(SB+route,{...options,headers:{apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json',...options.headers},signal:AbortSignal.timeout(25000)});if(!r.ok)fail(r.status===409?409:502,r.status===409?'Username already exists or data changed.':'Account/data service could not complete the request.');if(r.status===204)return null;const payload=await r.text();return payload?JSON.parse(payload):null;}
 const db=(table,query='',options={})=>sb('/rest/v1/'+table+query,options);
 const safe=u=>({id:u.id,username:u.username,role:u.role,enabled:u.enabled,last_login:u.last_login,last_active:u.last_active,credit_memos:canReadCM(u)});
@@ -24,7 +32,7 @@ async function login(req,res){const b=await body(req),name=username(b.username),
 }
 async function readAsset(name,u,req,res){if(!assets.has(name))fail(404,'Not found.');if(name==='credit-memos.js'&&!canReadCM(u))fail(403,'Credit Memo access has not been approved for this account.');let text=await fs.readFile(path.join(__dirname,'dashboard',name),'utf8');if(name==='index.html'){text=text.replace(/(src|href)="([^":/]+\.(?:js|css))"/g,(_,a,n)=>a+'="/api/gateway?op=asset&amp;name='+n+'"');text=text.replace('</head>','<script>window.dashboardAccount='+JSON.stringify(safe(u)).replace(/</g,'\\u003c')+';</script><script defer src="/api/gateway?op=asset&amp;name=accounts.js"></script>'+(canReadCM(u)?'<script defer src="/api/gateway?op=asset&amp;name=credit-memos.js"></script>':'')+'</head>');}res.setHeader('Content-Type',name.endsWith('.css')?'text/css':name.endsWith('.html')?'text/html':'application/javascript');if(name==='index.html')return res.end(text);return sendConditional(req,res,text,undefined,true);}
 module.exports=async(req,res)=>{res.setHeader('Cache-Control','private, no-store, max-age=0');res.setHeader('Vary','Cookie');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');res.setHeader('Content-Security-Policy',"frame-ancestors 'none'");try{
- const url=new URL(req.url,'https://placeholder'),op=url.searchParams.get('op');if(!['GET','POST'].includes(req.method))fail(405,'Method not allowed.');if(req.method==='POST'){const expected=process.env.DASHBOARD_ORIGIN;if(!expected||req.headers.origin!==expected)fail(403,'Invalid request origin.');}
+ const url=new URL(req.url,'https://placeholder'),op=url.searchParams.get('op');if(!['GET','POST'].includes(req.method))fail(405,'Method not allowed.');if(req.method==='POST'&&!allowedOrigin(req.headers.origin))fail(403,'Invalid request origin.');
  if(op==='login'){if(req.method!=='POST')fail(405,'Method not allowed.');return await login(req,res);}
  const u=await current(req);if(op==='session')return json(res,{account:safe(u)});
  if(op==='logout'){if(req.method!=='POST')fail(405,'Method not allowed.');await db('wvis_sessions','?token_hash=eq.'+hashToken(sessionToken(req)),{method:'DELETE'});cookie(res,'');return json(res,{ok:true});}
