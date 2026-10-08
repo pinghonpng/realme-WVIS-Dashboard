@@ -5,9 +5,10 @@ const PUSH_TERRITORIES=[
  ['PANAY','PANAY.PANAY 1',50,60],['PANAY','PANAY.PANAY 2',50,60],['PANAY','PANAY.PANAY 3',62,72],['PANAY','PANAY.PANAY 4',38,48]
 ];
 const PUSH_COMPONENTS=[{series:'16T SERIES',title:'16T Series',start:4,end:15,total:1191,column:2},{series:'C100 SERIES',title:'C100 Series',start:1,end:30,total:720,column:3}];
-const PUSH_CAMPAIGNS=[{title:'C100 + 16T Series',components:PUSH_COMPONENTS,start:1,end:31,total:1911}];
-const pushSeriesMatch=(series,campaign)=>campaign.components?campaign.components.some(c=>series===c.series):series===campaign.series;
-const pushSeriesVisible=(campaign,filter)=>campaign.components?campaign.components.some(c=>passes(c.series,filter)):passes(campaign.series,filter);
+const PUSH_CAMPAIGNS=[{title:'C100 + 16T Series',components:PUSH_COMPONENTS,start:1,end:31,total:1911,monthlyTargets:{'2026-10':2000}},{title:'All Smartphones',allSmartphones:true,salesOnly:true,start:1,end:31,total:null,monthlyTargets:{'2026-10':7600}}];
+const pushSeriesMatch=(series,campaign,productType)=>campaign.allSmartphones?productType==='SMARTPHONE':campaign.components?campaign.components.some(c=>series===c.series):series===campaign.series;
+const pushSeriesVisible=(campaign,filter)=>campaign.allSmartphones|| (campaign.components?campaign.components.some(c=>passes(c.series,filter)):passes(campaign.series,filter));
+const pushCampaignTarget=(campaign,month)=>campaign.monthlyTargets?.[month]??(month==='2026-09'?campaign.total:null);
 function pushCombinedReport(all,roster,rangeName,view,filters,campaign){
  const monthEnd=new Date(...[...filters.month.split('-').map(Number),0]).getDate();
  const reports=campaign.components.map(c=>pushReport(all,roster,rangeName,view,filters,filters.month==='2026-09'?c:{...c,start:1,end:monthEnd}));
@@ -27,6 +28,16 @@ function pushWholeTargets(total,weights){
  const left=total-parts.reduce((s,p)=>s+p.units,0);for(let i=0;i<left;i++)parts[i].units++;
  return new Map(parts.map(p=>[p.key,p.units]));
 }
+function pushMonthlyTerritoryTargets(total){
+ // Equal regional targets, with whole-unit rounding; retain September's combined subregion proportions.
+ const areas=['EVIS','NEGROS','PANAY'],areaTargets=pushWholeTargets(total,new Map(areas.map(area=>[area,1]))),targets=new Map();
+ for(const area of areas){
+  const territories=PUSH_TERRITORIES.filter(t=>t[0]===area),previous16T=pushWholeTargets(397,new Map(territories.map(t=>[t[1],t[2]])));
+  const weights=new Map(territories.map(t=>[t[1],previous16T.get(t[1])+t[3]]));
+  pushWholeTargets(areaTargets.get(area),weights).forEach((units,subregion)=>targets.set(subregion,units));
+ }
+ return targets;
+}
 function pushLatestPromoters(all,roster){
  if(!roster)return [];
  const byId=new Map(roster.entries.filter(e=>e.id).map(e=>[e.id,e])),byName=new Map(roster.entries.map(e=>[rosterName(e.name),e])),latest=new Map();
@@ -37,7 +48,7 @@ function pushLatestPromoters(all,roster){
  return roster.entries.map(e=>{const row=latest.get(e.key);return {_ps:e.key,_name:e.name||e.key,_store:e.store||row?._store||'Unassigned',_area:row?._area||e.area,_asm:row?._asm||e.asm,_customer:row?._customer||e.customer||'Unassigned',_channel:row?._channel||'Unassigned'};});
 }
 function pushReport(all,roster,rangeName,view,filters,campaign){
- if(campaign.components)return pushCombinedReport(all,roster,rangeName,view,filters,campaign);
+ if(campaign.components&&campaign.monthlyTargets?.[filters.month]==null)return pushCombinedReport(all,roster,rangeName,view,filters,campaign);
  const key={area:'_area',subregion:'_asm',dealer:'_customer',channel:'_channel'}[view],label=r=>r[key]||'Unassigned';
  const history=all.filter(r=>['2026-06','2026-07','2026-08'].includes(modelMonthKey(r._date))&&r._priceRange===rangeName);
  const members=pushLatestPromoters(all,roster),historySum=new Map(),headcounts=new Map();
@@ -47,7 +58,12 @@ function pushReport(all,roster,rangeName,view,filters,campaign){
  const allocationReady=!!rangeName&&completeHistory&&premiumTotal>0&&headcount>0;
  const weights=new Map([...new Set([...historySum.keys(),...headcounts.keys()])].map(k=>[k,.5*Math.max(0,historySum.get(k)||0)/premiumTotal+.5*(headcounts.get(k)||0)/headcount]));
  let targets=null;
- if(filters.month==='2026-09'&&campaign.total!==null){
+ if(campaign.monthlyTargets?.[filters.month]!=null){
+  if(view==='area'||view==='subregion'){
+   const territoryTargets=pushMonthlyTerritoryTargets(campaign.monthlyTargets[filters.month]);targets=new Map();
+   PUSH_TERRITORIES.filter(t=>passes(t[0],filters.area)&&passes(t[1],filters.asm)).forEach(t=>{const k=t[view==='area'?0:1];targets.set(k,(targets.get(k)||0)+territoryTargets.get(t[1]));});
+  }else if(allocationReady)targets=pushWholeTargets(campaign.monthlyTargets[filters.month],weights);
+ }else if(filters.month==='2026-09'&&campaign.total!==null){
   if(view==='area'||view==='subregion'){
    const territoryTargets=new Map();
    for(const area of ['EVIS','NEGROS','PANAY']){const ts=PUSH_TERRITORIES.filter(t=>t[0]===area);const allocated=campaign.column===2?pushWholeTargets(397,new Map(ts.map(t=>[t[1],t[2]]))):new Map(ts.map(t=>[t[1],t[3]]));allocated.forEach((v,k)=>territoryTargets.set(k,v));}
@@ -57,11 +73,11 @@ function pushReport(all,roster,rangeName,view,filters,campaign){
  const territoryMatch=r=>passes(r._area,filters.area)&&passes(r._asm,filters.asm)&&passes(r._customer,filters.customer)&&passes(r._channel,filters.channel);
  const productMatch=r=>passes(r._productType,filters.productType||'SMARTPHONE')&&passes(r._model,filters.model)&&passes(r._series,filters.series)&&passes(r._priceRange,filters.priceRange);
  const period=all.filter(r=>modelMonthKey(r._date)===filters.month&&r._date.getDate()>=campaign.start&&r._date.getDate()<=campaign.end);
- const sales=new Map();period.filter(r=>pushSeriesMatch(r._series,campaign)&&territoryMatch(r)&&productMatch(r)).forEach(r=>sales.set(label(r),(sales.get(label(r))||0)+r._qty));
+ const sales=new Map();period.filter(r=>pushSeriesMatch(r._series,campaign,r._productType)&&territoryMatch(r)&&productMatch(r)).forEach(r=>sales.set(label(r),(sales.get(label(r))||0)+r._qty));
  const eligible=new Set([...all.filter(territoryMatch),...members.filter(territoryMatch)].map(label));
  if(filters.customer==='ALL'&&filters.channel==='ALL'&&(view==='area'||view==='subregion'))PUSH_TERRITORIES.filter(t=>passes(t[0],filters.area)&&passes(t[1],filters.asm)).forEach(t=>eligible.add(t[view==='area'?0:1]));
  const seriesVisible=['ALL','SMARTPHONE'].includes(filters.productType)&&pushSeriesVisible(campaign,filters.series);
- const modelVisible=filters.model==='ALL'||all.some(r=>r._model===filters.model&&pushSeriesMatch(r._series,campaign));
+ const modelVisible=filters.model==='ALL'||all.some(r=>r._model===filters.model&&pushSeriesMatch(r._series,campaign,r._productType));
  const groups=seriesVisible&&modelVisible?[...eligible].sort((a,b)=>a.localeCompare(b)).map(k=>({label:k,target:targets?(targets.get(k)??0):null,sales:period.length?(sales.get(k)||0):null,history:historySum.get(k)||0,headcount:headcounts.get(k)||0})):[];
  const total={label:'WVIS',target:groups.length&&groups.every(g=>g.target!==null)?groups.reduce((s,g)=>s+g.target,0):null,sales:groups.length&&period.length?groups.reduce((s,g)=>s+g.sales,0):null};
  return {groups,total,allocationReady,latest:period.reduce((n,r)=>Math.max(n,r._date.getDate()),0)};
@@ -75,7 +91,7 @@ function pushTrends(all,filters,campaign,key){
  weeks.forEach(w=>w.available=covered(w.start,w.end));
  const complete=m=>{const [y,n]=m.split('-').map(Number);return covered(Date.UTC(y,n-1,1)/86400000,Date.UTC(y,n,0)/86400000);};
  const buckets=new Map(),blank=()=>({weeks:[0,0,0,0,0],months:{}});
- for(const r of all){if(!pushSeriesMatch(r._series,campaign)||!['area','asm','customer','channel','productType','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))continue;
+ for(const r of all){if(!pushSeriesMatch(r._series,campaign,r._productType)||!['area','asm','customer','channel','productType','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))continue;
  const label=r[key]||'Unassigned';if(!buckets.has(label))buckets.set(label,blank());const g=buckets.get(label),d=day(r._date),m=modelMonthKey(r._date);
  weeks.forEach((w,i)=>{if(d>=w.start&&d<=w.end)g.weeks[i]+=r._qty;});if(months.includes(m)||m===baseline)g.months[m]=(g.months[m]||0)+r._qty;}
  const sum=labels=>{const g=blank();labels.forEach(label=>{const v=buckets.get(label);if(v){v.weeks.forEach((q,i)=>g.weeks[i]+=q);Object.entries(v.months).forEach(([m,q])=>g.months[m]=(g.months[m]||0)+q);}});return g;};
@@ -187,7 +203,7 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
 (()=>{
  const nav=document.createElement('button');nav.className='nav-item';nav.dataset.section='pushModels';nav.textContent='Push Model Performance';document.querySelector('.nav-item[data-section="dealers"]').before(nav);
  const section=document.createElement('section');section.id='pushModelsSection';section.className='dashboard-section';
- section.innerHTML='<div class="card push-controls"><div role="group" aria-label="Push performance mode"><button type="button" class="secondary-btn" data-push-mode="sales" aria-pressed="true">Sales Performance</button> <button type="button" class="secondary-btn" data-push-mode="distribution" aria-pressed="false">PS Distribution</button></div><label for="pushView">View by</label><select id="pushView"><option value="area">Area</option><option value="subregion">Subregion</option><option value="dealer">Dealer</option><option value="channel">Customer Type</option></select><p>Combined C100 + 16T sales; C100i is excluded. September retains each series’ original target and sales window (16T: September 4–15; C100: September 1–30). Other months use the full month to date.</p><p>Dealer and Customer Type targets: 50% of June–August unit-sales share in “more Php 13000” + 50% of current ACTIVE promoter headcount share. Each promoter counts once under their latest recorded dealer/customer type; without sales, HR dealer is used and customer type is Unassigned. Whole-unit allocations preserve each series total.</p><p>All universal filters apply to sales and displayed groups. Allocated targets stay fixed when filters narrow the view; they are not prorated for a model, price range, dealer, or customer type selection. Area targets combine the selected subregions. Gap is remaining units to target.</p><p id="pushNotice" role="status"></p></div>'+PUSH_CAMPAIGNS.map((c,i)=>'<article class="card table-card"><div class="card-head"><div><h2>'+c.title+'</h2><p id="pushPeriod'+i+'"></p></div></div><div class="table-wrap"><table class="model-history-table" aria-label="'+c.title+' push performance"><thead><tr><th>Area</th><th>Target</th><th>Sales</th><th>Achievement %</th><th>Gap (Shortfall Share)</th></tr></thead><tbody id="pushBody'+i+'"></tbody><tfoot id="pushTotal'+i+'"></tfoot></table></div></article>').join('');
+ section.innerHTML='<div class="card push-controls"><div role="group" aria-label="Push performance mode"><button type="button" class="secondary-btn" data-push-mode="sales" aria-pressed="true">Sales Performance</button> <button type="button" class="secondary-btn" data-push-mode="distribution" aria-pressed="false">PS Distribution</button></div><label for="pushView">View by</label><select id="pushView"><option value="area">Area</option><option value="subregion">Subregion</option><option value="dealer">Dealer</option><option value="channel">Customer Type</option></select><p>Combined C100 + 16T sales; C100i is excluded. September retains each series’ original target and sales window (16T: September 4–15; C100: September 1–30). Other months use the full month to date.</p><p>Dealer and Customer Type targets: 50% of June–August unit-sales share in “more Php 13000” + 50% of current ACTIVE promoter headcount share. Each promoter counts once under their latest recorded dealer/customer type; without sales, HR dealer is used and customer type is Unassigned. Whole-unit allocations preserve each table’s WVIS target. October targets: All Smartphones 7,600; C100 + 16T 2,000. Each target is split equally across EVIS, NEGROS and PANAY, with at most one unit of rounding difference. Subregions retain their previous combined target proportions within each area.</p><p>All universal filters apply to sales and displayed groups. Allocated targets stay fixed when filters narrow the view; they are not prorated for a model, price range, dealer, or customer type selection. Area targets combine the selected subregions. Gap is remaining units to target.</p><p id="pushNotice" role="status"></p></div>'+PUSH_CAMPAIGNS.map((c,i)=>'<article class="card table-card"><div class="card-head"><div><h2>'+c.title+'</h2><p id="pushPeriod'+i+'"></p></div></div><div class="table-wrap"><table class="model-history-table" aria-label="'+c.title+' push performance"><thead><tr><th>Area</th><th>Target</th><th>Sales</th><th>Achievement %</th><th>Gap (Shortfall Share)</th></tr></thead><tbody id="pushBody'+i+'"></tbody><tfoot id="pushTotal'+i+'"></tfoot></table></div></article>').join('');
  section.insertAdjacentHTML('beforeend','<article id="pushHeadcountCard" class="card table-card" hidden><div class="card-head"><h2>All Smartphone Sales · Promoter Headcount</h2></div><div class="push-headcount-types" role="group" aria-label="Included promoter types">'+['REG PS','NHT','RESIGNED'].map(t=>'<button type="button" class="secondary-btn" data-push-headcount-type="'+t+'" aria-pressed="true">'+t+'</button>').join(' ')+'</div><p id="pushHeadcountNote"></p><div class="table-wrap"><table class="model-history-table push-performance-table" aria-label="All smartphone promoter headcount"><thead id="pushHeadcountHead"></thead><tbody id="pushHeadcountBody"></tbody><tfoot id="pushHeadcountTotal"></tfoot></table></div></article>');
  $('dealersSection').before(section);
  const style=document.createElement('style');style.textContent='.push-controls [role=group]{margin-bottom:12px}button[data-push-headcount-type][aria-pressed="true"],button[data-push-mode][aria-pressed="true"]{background:#fff2bc;border-color:#d4ad20;color:#111}.push-controls{padding:20px;margin-bottom:18px}.push-controls select{margin-left:12px;padding:8px;border:1px solid #d8dce2;border-radius:6px;background:white;font:inherit}.push-controls p{font-size:12px;color:#69717e;line-height:1.5}#pushModelsSection .table-card{margin-bottom:18px}#pushModelsSection th,#pushModelsSection td{border:1px solid #d8dce2;text-align:center}';document.head.append(style);
@@ -198,12 +214,13 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
   pushDistributionDrilldowns=[];
   const all=salesEnriched(),roster=window.evisRoster?.getRoster(),range=window.evisPriceRanges?.getRanges().find(r=>normalize(r.name).replace(/[\s,]+/g,'').toLowerCase()==='morephp13000');
   const view=$('pushView').value,filters=Object.fromEntries(['month','productType','area','asm','customer','channel','model','series','priceRange'].map(k=>[k,selected(k+'Filter')]));
-  const warnings=[];if(filters.month!=='2026-09')warnings.push('Targets are supplied for September 2026 only.');if(!roster)warnings.push('Waiting for the active promoter list to allocate targets.');if(!range)warnings.push('Define the “more Php 13000” price range to allocate targets.');
+  const warnings=[];if(!['2026-09','2026-10'].includes(filters.month))warnings.push('Targets are supplied for September 2026 (C100 + 16T) and October 2026 only.');if(!roster)warnings.push('Waiting for the active promoter list to allocate targets.');if(!range)warnings.push('Define the “more Php 13000” price range to allocate targets.');
   const row=(g,shortfall,summary=false)=>{const gap=summary?shortfall:g.target!==null&&g.sales!==null?Math.max(0,g.target-g.sales):null;const share=gap!==null&&shortfall!==null?(shortfall>0?gap/shortfall*100:0):null;return '<tr><td>'+escapeHtml(g.label)+'</td><td>'+ (g.target===null?'—':fmt(g.target))+'</td><td>'+(g.sales===null?'—':fmt(g.sales))+'</td><td>'+(g.target>0&&g.sales!==null?pct(g.sales/g.target*100):'—')+'</td><td data-sort-value="'+(gap??'')+'" title="Remaining units and share of total shortfall in the displayed rows; above-target sales do not offset other rows’ shortfalls.">'+(gap===null?'—':fmt(gap)+' ('+(share===null?'—':fmt(share,2)+'%')+')')+'</td></tr>';};
   PUSH_CAMPAIGNS.forEach((campaign,i)=>{
+   const card=$('pushBody'+i).closest('article');card.hidden=campaign.salesOnly&&mode==='distribution';if(card.hidden)return;
    const report=pushReport(all,roster,range?.name,view,filters,campaign);
    if(i===0&&!report.allocationReady&&['dealer','channel'].includes(view))warnings.push('Allocations need June, July and August data, positive premium sales, and active headcount.');
-   $('pushPeriod'+i).textContent=monthName(filters.month)+' · '+(filters.month==='2026-09'?'Combined campaign windows: 16T 4–15; C100 1–30. ':'Combined month-to-date sales. ')+(report.latest?'Uploaded sales through day '+report.latest+'.':'No uploaded sales in this window.')+(campaign.total===null?' Target not supplied.':'');
+   $('pushPeriod'+i).textContent=monthName(filters.month)+' · '+(campaign.allSmartphones?'All smartphone month-to-date sales. ':filters.month==='2026-09'?'Combined campaign windows: 16T 4–15; C100 1–30. ':'Combined month-to-date sales. ')+(report.latest?'Uploaded sales through day '+report.latest+'.':'No uploaded sales in this window.')+(pushCampaignTarget(campaign,filters.month)===null?' Target not supplied for this month.':'');
    const table=$('pushBody'+i).closest('table'),label={area:'Area',subregion:'Subregion',dealer:'Dealer',channel:'Customer Type'}[view],key={area:'_area',subregion:'_asm',dealer:'_customer',channel:'_channel'}[view];
    table.dataset.pushTableMode=mode;table.classList.add('push-performance-table');
    if(mode==='distribution')$('pushPeriod'+i).setAttribute('role','status');else $('pushPeriod'+i).removeAttribute('role');
