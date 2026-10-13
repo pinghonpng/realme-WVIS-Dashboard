@@ -206,7 +206,7 @@ function filteredPromoterAggregates(rows){
  return [...groups].map(([pid,items])=>({pid,name:find(items[0],'PS Name','Promoter Name','Frontliner Name')||names.get(pid)||pid,store:labels(items,'_store'),area:labels(items,'_area'),asm:labels(items,'_asm'),sales:items.reduce((sum,r)=>sum+r._qty,0)})).sort((a,b)=>b.sales-a.sales);
 }
 function renderStores(rows){
-  const a=storeAggregates(rows).sort((x,y)=>y.sales-x.sales); $('topStoresBody').innerHTML=a.slice(0,10).map(x=>`<tr><td><strong>${escapeHtml(x.store)}</strong></td><td>${escapeHtml(x.area)}</td><td>${escapeHtml(x.asm)}</td><td>${fmt(x.sales)}</td></tr>`).join('')||emptyRow(4); $('bottomStoresBody').innerHTML=[...a].sort((x,y)=>x.sales-y.sales).slice(0,10).map(x=>`<tr><td><strong>${escapeHtml(x.store)}</strong></td><td>${escapeHtml(x.area)}</td><td>${escapeHtml(x.asm)}</td><td>${fmt(x.sales)}</td></tr>`).join('')||emptyRow(4); $('storeTableBody').innerHTML=a.map(x=>`<tr><td><strong>${escapeHtml(x.store)}</strong></td><td>${escapeHtml(x.customer)}</td><td>${escapeHtml(x.area)}</td><td>${escapeHtml(x.asm)}</td><td>${escapeHtml(x.channel)}</td><td>${fmt(x.sales)}</td><td>${fmt(x.inventory)}</td></tr>`).join('')||emptyRow(7);
+  renderStorePerformance();
 }
 
 function promoterHireTypes(all,month){
@@ -254,6 +254,153 @@ document.addEventListener('DOMContentLoaded',async()=>{
   document.querySelectorAll('.drop-zone').forEach(zone=>{zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('dragover')});zone.addEventListener('dragleave',()=>zone.classList.remove('dragover'));zone.addEventListener('drop',e=>{e.preventDefault();zone.classList.remove('dragover');const input=zone.querySelector('input');const file=e.dataTransfer.files[0];if(file)handleUpload(input.id==='fixedFile'?'fixed':'current',file)})});
   $('refreshBtn').addEventListener('click',refresh); const restored=await restoreUploads(); if(!restored)await refresh(); if(CFG.refreshMs>0)setInterval(()=>{if(!combinedUploads().length)refresh()},CFG.refreshMs);
 });
+
+// Store comparison: raw sale-date assignments and stable store/promoter identities.
+// No active-roster restriction: previous sellers and stores with zero current sales
+// must remain visible or their declines would disappear from the comparison.
+function storePerfMonth(date){return date&&!isNaN(date)?date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0'):'';}
+function storePerfOffset(month,offset){const [y,m]=month.split('-').map(Number);return storePerfMonth(new Date(y,m-1+offset,1));}
+function storePerfDays(month){const [y,m]=month.split('-').map(Number);return y&&m?new Date(y,m,0).getDate():0;}
+function storePerfPeriod(all,month,previous,mode){
+ const latest=new Map();for(const r of all){const m=storePerfMonth(r._date);if(m)latest.set(m,Math.max(latest.get(m)||0,r._date.getDate()));}
+ const currentLatest=latest.get(month)||0,previousLatest=latest.get(previous)||0;
+ const day=mode==='matched'?Math.min(currentLatest,storePerfDays(previous)):0;
+ const currentEnd=mode==='matched'?day:currentLatest,previousEnd=mode==='matched'?day:previousLatest;
+ const comparable=mode==='matched'?day>0&&previousLatest>=day:currentLatest===storePerfDays(month)&&previousLatest===storePerfDays(previous)&&currentLatest>0&&previousLatest>0;
+ return {month,previous,mode,latest,currentEnd,previousEnd,currentLatest,previousLatest,comparable};
+}
+function storePerfIdentity(row,kind){
+ const clean=v=>normalize(v).replace(/\s+/g,' '),label=key=>clean(row[key])||'Unassigned';
+ if(kind==='store'){const name=label('_store'),id=clean(row._sid);return {key:id?'store:'+id:'store-name:'+name.toLowerCase(),label:name==='Unassigned'&&id?id:name};}
+ if(kind==='model'){const name=label('_model');return {key:JSON.stringify([row._productType||'',name.toLowerCase()]),label:name};}
+ if(kind==='promoter'){
+  const role=clean(find(row,'SR Role','Role')).toUpperCase(),id=clean(row._ps),name=clean(find(row,'PS Name','Promoter Name','SR Name','Frontliner Name'));
+  if(['SP','NHT'].includes(role))return {key:id?'ps:'+id:name?'ps-name:'+name.toLowerCase():'ps:unidentified',label:name||id||'Unidentified promoter',detail:id?'Promoter · '+id:'Promoter · ID unavailable'};
+  if(role==='FL')return {key:id?'fl:'+id:name?'fl-name:'+name.toLowerCase():'fl:unidentified',label:name||id||'Unidentified frontliner',detail:'Frontliner'+(id?' · '+id:' · ID unavailable')};
+  return {key:'other:'+role,label:role?'Other sales · '+role:'Unassigned seller / role',detail:'Included to reconcile all store sales'};
+ }
+ const name=label({dealer:'_customer',area:'_area',subregion:'_asm'}[kind]);return {key:name,label:name};
+}
+function storePerfScope(all,filters){
+ const fields={area:'_area',subregion:'_asm',dealer:'_customer',product:'_productType',model:'_model',type:'_channel'};
+ return all.filter(r=>storePerfMonth(r._date)&&Object.entries(fields).every(([key,field])=>!filters[key]||filters[key]==='ALL'||(r[field]||'Unassigned')===filters[key]));
+}
+function storePerfReport(all,filters,kind='store',focus=null){
+ const p=storePerfPeriod(all,filters.month,filters.previous,filters.mode),path=focus?[...(focus.parents||[]),focus]:[],scoped=storePerfScope(all,filters).filter(r=>path.every(part=>storePerfIdentity(r,part.kind).key===part.key));
+ const months=Array.from({length:6},(_,i)=>storePerfOffset(filters.month,i-5));if(filters.previous&&!months.includes(filters.previous))months.unshift(filters.previous);
+ const groups=new Map(),total={key:'total',label:'Selected total',current:0,previous:0,monthly:months.map(()=>0),currentStores:new Set(),previousStores:new Set()};
+ for(const row of scoped){
+  const m=storePerfMonth(row._date),day=row._date.getDate(),mi=months.indexOf(m),isCurrent=m===p.month&&day<=p.currentEnd,isPrevious=m===p.previous&&day<=p.previousEnd;
+  if(mi<0&&!isCurrent&&!isPrevious)continue;
+  const who=storePerfIdentity(row,kind),store=storePerfIdentity(row,'store').key;
+  if(!groups.has(who.key))groups.set(who.key,{...who,current:0,previous:0,monthly:months.map(()=>0),currentStores:new Set(),previousStores:new Set(),dealers:new Set(),areas:new Set(),subregions:new Set(),stores:new Set(),latest:-Infinity,inPair:false});
+  const g=groups.get(who.key),qty=Number(row._qty)||0,date=+row._date;
+  if(date>=g.latest){g.latest=date;g.label=who.label;g.detail=who.detail||'';}
+  if(isCurrent||isPrevious){g.inPair=true;for(const [set,key] of [['dealers','_customer'],['areas','_area'],['subregions','_asm'],['stores','_store']])if(normalize(row[key]))g[set].add(normalize(row[key]));}
+  for(const item of [g,total]){
+   if(mi>=0)item.monthly[mi]+=qty;
+   if(isCurrent){item.current+=qty;if(qty>0)item.currentStores.add(store);}
+   if(isPrevious){item.previous+=qty;if(qty>0)item.previousStores.add(store);}
+  }
+ }
+ const list=[...groups.values()].filter(g=>g.inPair),history=[...groups.values()];
+ const lost=list.reduce((s,g)=>s+Math.max(0,g.previous-g.current),0),gained=list.reduce((s,g)=>s+Math.max(0,g.current-g.previous),0);
+ const finish=g=>({...g,current:p.currentLatest?g.current:null,previous:p.previousLatest?g.previous:null,gap:p.comparable?g.current-g.previous:null,change:p.comparable&&g.previous>0?(g.current-g.previous)/g.previous*100:null,declineShare:p.comparable?(lost?Math.max(0,g.previous-g.current)/lost*100:0):null,salesShare:p.currentLatest&&total.current>0?g.current/total.current*100:null,monthly:g.monthly.map((v,i)=>p.latest.has(months[i])?v:null)});
+ const output=list.map(finish).sort((a,b)=>(a.gap??0)-(b.gap??0)||(b.current??0)-(a.current??0)||a.label.localeCompare(b.label));
+ return {period:p,months,rows:output,history:history.map(finish).sort((a,b)=>(b.current??0)-(a.current??0)||a.label.localeCompare(b.label)),total:finish(total),lost:p.comparable?lost:null,gained:p.comparable?gained:null,declining:p.comparable?list.filter(g=>g.current<g.previous).length:null,scoped};
+}
+const storePerfState={month:'',previous:'',mode:'matched',area:'ALL',subregion:'ALL',dealer:'ALL',product:'SMARTPHONE',model:'ALL',type:'ALL',view:'store',search:'',focus:null};
+let storePerfDrills=[],storePerfMounted=false;
+function mountStorePerformance(){
+ if(storePerfMounted)return;storePerfMounted=true;
+ const filter=(key,label)=>`<label>${label}<select id="sp-${key}" data-sp-filter="${key}" aria-label="Store performance ${label}"></select></label>`;
+ const card=(id,title,description)=>`<article class="card sp-card"><div class="card-head"><div><h2 id="${id}-title">${title}</h2><p id="${id}-note">${description}</p></div></div><div class="table-wrap"><table class="sp-table" data-preserve-customer-types aria-labelledby="${id}-title"><thead></thead><tbody id="${id}"></tbody><tfoot data-summary="history"></tfoot></table></div></article>`;
+ $('storesSection').innerHTML=`<article class="card sp-card"><div class="card-head"><div><h2>Sales comparison & contribution</h2><p>Compare months, find lost units, and trace the stores, models and people behind the change.</p></div></div><div class="sp-filters">${filter('month','Sales month')}${filter('previous','Compare with')}${filter('mode','Comparison period')}${filter('product','Product type')}${filter('dealer','Dealer')}${filter('area','Area')}${filter('subregion','Subregion')}${filter('type','Customer type')}${filter('model','Model')}</div><p id="sp-period" class="sp-note" role="status"></p><div class="sp-controls" role="group" aria-label="Group store performance">${['store','dealer','area','subregion'].map(view=>`<button type="button" class="secondary-btn" data-sp-view="${view}" aria-pressed="${view==='store'}">By ${view}</button>`).join('')}<label class="sp-search">Find a row<input id="sp-search" placeholder="Store, dealer or geography" type="search" aria-label="Find a performance row"></label><button class="secondary-btn" type="button" data-sp-reset>Reset filters</button></div></article><div id="sp-kpis" class="sp-kpis"></div>${card('sp-summary','Store comparison','Click a name to inspect its contribution. Sorted by largest unit decline first.')}${card('sp-history','Monthly sales history','Full uploaded monthly sales; * marks a partial month.')}
+ <article class="card sp-card sp-focus"><div><strong id="sp-focus-title">Contribution: all selected sales</strong><p id="sp-focus-note" class="sp-note"></p></div><button type="button" class="secondary-btn" data-sp-clear hidden>Clear selection</button></article>
+ ${card('sp-detail-stores','Store contributions','Stores within the selected group, including stores with zero current sales.')}<div class="sp-detail-grid">${card('sp-models','Model contributions','Units gained or lost by model.')}${card('sp-promoters','Promoter & frontliner contributions','All sellers retained, including previous-month sellers and unassigned sales.')}</div>`;
+ const style=document.createElement('style');style.id='store-performance-style';style.textContent=`
+ body:has(.nav-item[data-section="stores"].active) .main>.filters{display:none!important}
+ #storesSection{min-width:0}.sp-card{margin-bottom:18px;min-width:0}.sp-card h2{font-size:18px}.sp-card .card-head p,.sp-note{color:var(--muted);font-size:12px;line-height:1.6}.sp-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}.sp-filters label,.sp-search{font-size:12px;font-weight:600;min-width:0}.sp-filters select,.sp-search input{display:block;width:100%;box-sizing:border-box;padding:10px;margin-top:6px;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:7px;min-height:42px}.sp-controls{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.sp-controls [aria-pressed="true"]{background:#fff3bd;color:#17191c;border-color:#d8b42b}.sp-search{margin-left:auto;min-width:210px}.sp-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:18px}.sp-kpi{padding:18px;min-width:0}.sp-kpi strong{display:block;font-size:25px;margin:8px 0}.sp-kpi span{font-size:12px;color:var(--muted)}.sp-kpi small{display:block;font-size:11px;color:var(--muted)}.sp-up{color:#218444}.sp-down{color:#c43838}.sp-neutral{color:var(--muted)}.sp-table{width:100%;min-width:920px;table-layout:auto}.sp-table :is(th,td){padding:12px 10px;font-variant-numeric:tabular-nums}.sp-table :is(th,td):first-child{min-width:230px;max-width:400px;text-align:left}.sp-table td:not(:first-child){text-align:right;white-space:nowrap!important}.sp-table small{display:block;color:var(--muted);font-size:11px;font-weight:400;margin-top:5px}.sp-drill{font:inherit;font-weight:600;border:0;background:transparent;color:inherit;text-decoration:underline;text-underline-offset:3px;padding:4px 0;text-align:left;cursor:pointer}.sp-drill:focus-visible{outline:2px solid #2563eb}.sp-table tr[data-sp-selected="true"]{background:#fff5c9;color:#17191c}.sp-table .sp-context{text-align:left!important;max-width:270px;min-width:160px;white-space:normal!important}.sp-focus{display:flex;align-items:center;justify-content:space-between;gap:16px}.sp-detail-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:0}.sp-card .table-wrap{max-height:580px;overflow:auto}.sp-table thead th{position:sticky;top:0;background:var(--card);z-index:1}.sp-blank{padding:24px!important;text-align:center!important;color:var(--muted)}
+ @media(max-width:1050px){.sp-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+ @media(max-width:640px){.sp-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.sp-filters{grid-template-columns:minmax(0,1fr)}.sp-search{margin-left:0;width:100%}.sp-focus{align-items:flex-start;flex-direction:column}.sp-card{padding:16px}.sp-table{min-width:900px}.sp-controls button{min-height:42px}}
+ html[data-mobile-view] .sp-table.mobile-fit-table :is(th,td):first-child{min-width:230px!important;max-width:400px!important}html[data-theme="night"] .sp-up{color:#72d79c}html[data-theme="night"] .sp-down{color:#ff9898}`;document.head.append(style);
+ $('storesSection').addEventListener('change',event=>{const key=event.target.dataset.spFilter;if(!key)return;storePerfState[key]=event.target.value;storePerfState.focus=null;if(key==='month')storePerfState.previous=storePerfOffset(storePerfState.month,-1);if(['dealer','area'].includes(key))storePerfState.subregion='ALL';if(key==='product')storePerfState.model='ALL';renderStorePerformance(true);});
+ $('sp-search').addEventListener('input',event=>{storePerfState.search=event.target.value;renderStorePerformance(true);});
+ document.addEventListener('click',event=>{
+  const view=event.target.closest('[data-sp-view]'),drill=event.target.closest('[data-sp-drill]');
+  if(view){storePerfState.view=view.dataset.spView;storePerfState.search='';$('sp-search').value='';storePerfState.focus=null;renderStorePerformance(true);}
+  if(drill){const item=storePerfDrills[Number(drill.dataset.spDrill)];if(item){drill.closest('dialog.dashboard-fullscreen')?.querySelector('[aria-label="Close full screen"]')?.click();storePerfState.focus=item;renderStorePerformance(true);$('sp-focus-title').scrollIntoView({block:'center',behavior:'smooth'});}}
+  if(event.target.closest('[data-sp-clear]')){storePerfState.focus=null;renderStorePerformance(true);}
+  if(event.target.closest('[data-sp-reset]')){Object.assign(storePerfState,{month:'',previous:'',mode:'matched',area:'ALL',subregion:'ALL',dealer:'ALL',product:'SMARTPHONE',model:'ALL',type:'ALL',view:'store',search:'',focus:null});$('sp-search').value='';renderStorePerformance(true);}
+ });
+ style.textContent+='.sp-card{padding:20px}.sp-card p{display:block!important}.sp-card .card-head{gap:10px}.sp-focus .sp-note{margin-bottom:0}#storesSection .dashboard-fullscreen>.filters{display:none!important}@media(max-width:640px){.sp-card{padding:14px}}';
+ document.querySelector('.nav-item[data-section="stores"]')?.addEventListener('click',()=>renderStorePerformance(true));
+}
+function storePerfOptions(key,items,allLabel){
+ const el=$('sp-'+key),current=storePerfState[key],choices=items.map(item=>typeof item==='string'?[item,item]:item);
+ if(allLabel)choices.unshift(['ALL',allLabel]);
+ el.innerHTML=choices.map(([value,label])=>`<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join('');
+ el.value=choices.some(([value])=>value===current)?current:choices[0]?.[0]||'';storePerfState[key]=el.value;
+}
+function storePerfFormat(value,d=0){return value===null?'—':fmt(value,d);}
+function storePerfChange(g){return g.gap===null?'—':g.previous>0?(g.change>0?'+':'')+fmt(g.change,1)+'%':g.previous===0?(g.current===0?'0.0%':g.current>0?'New':'Returns'):'N/A';}
+function storePerfCells(g,showShare=true){
+ const kind=g.gap===null?'sp-neutral':g.gap<0?'sp-down':g.gap>0?'sp-up':'';
+ return `<td data-sort-value="${g.current??''}">${storePerfFormat(g.current)}</td><td data-sort-value="${g.previous??''}">${storePerfFormat(g.previous)}</td><td class="${kind}" data-sort-value="${g.gap??''}">${g.gap>0?'+':''}${storePerfFormat(g.gap)}</td><td class="${kind}" data-sort-value="${g.change??''}">${storePerfChange(g)}</td><td data-sort-value="${g.declineShare??''}" title="Lost units for this row / all lost units in this table">${storePerfFormat(g.declineShare,1)}${g.declineShare===null?'':'%'}</td>${showShare?`<td data-sort-value="${g.salesShare??''}">${storePerfFormat(g.salesShare,1)}${g.salesShare===null?'':'%'}</td>`:''}`;
+}
+function storePerfTable(id,report,{kind,clickable=false,rows=report.rows,context=false}={}){
+ const body=$(id),table=body.closest('table'),p=report.period,monthLabel=m=>monthName(m),entity={store:'Store',dealer:'Dealer',area:'Area',subregion:'Subregion',model:'Model',promoter:'Promoter / seller'}[kind];
+ const labels=[entity,...(context?['Dealer / Geography']:[]),monthLabel(p.month),monthLabel(p.previous),'Unit change','Change %','Share of decline','Share of sales'];
+ if(table.tHead.rows[0]?.cells.length!==labels.length&&typeof tableSortState!=='undefined')tableSortState.delete(table);
+ table.tHead.innerHTML='<tr>'+labels.map(label=>'<th scope="col">'+escapeHtml(label)+'</th>').join('')+'</tr>';
+ body.innerHTML=rows.map(g=>{
+  const selected=storePerfState.focus?.kind===kind&&storePerfState.focus.key===g.key;
+  const parents=id==='sp-detail-stores'&&storePerfState.focus&&storePerfState.focus.kind!=='store'?[...(storePerfState.focus.parents||[]),storePerfState.focus]:[];
+  const name=clickable?`<button type="button" class="sp-drill" data-sp-drill="${storePerfDrills.push({kind,key:g.key,label:g.label,parents})-1}" aria-label="View contribution for ${escapeHtml(g.label)}">${escapeHtml(g.label)}</button>`:`<strong>${escapeHtml(g.label)}</strong>`;
+  const contextText=context?[...g.dealers,...g.subregions].join(' · '):'';
+  return `<tr data-sp-selected="${selected}"><td>${name}${g.detail?'<small>'+escapeHtml(g.detail)+'</small>':''}</td>${context?'<td class="sp-context">'+escapeHtml(contextText)+'</td>':''}${storePerfCells(g)}</tr>`;
+ }).join('')||`<tr><td class="sp-blank" colspan="${labels.length}">No matching sales records in either comparison period.</td></tr>`;
+ const total={...report.total,declineShare:p.comparable?(report.lost?100:0):null,salesShare:report.total.current>0?100:null};
+ table.tFoot.innerHTML=`<tr><th scope="row">Selected total</th>${context?'<td></td>':''}${storePerfCells(total)}</tr>`;
+}
+function renderStorePerformance(force=false){
+ mountStorePerformance();if(!force&&!$('storesSection').classList.contains('active'))return;
+ const all=salesEnriched(),months=uniq(all.map(r=>storePerfMonth(r._date)).filter(Boolean)).reverse();
+ if(!storePerfState.month)storePerfState.month=months[0]||'';
+ storePerfOptions('month',months.map(m=>[m,monthName(m)]));
+ const prior=storePerfOffset(storePerfState.month||storePerfMonth(new Date()),-1);if(!storePerfState.previous)storePerfState.previous=prior;
+ storePerfOptions('previous',uniq([...months.filter(m=>m<storePerfState.month),prior]).reverse().map(m=>[m,monthName(m)+(months.includes(m)?'':' — no source data')]));
+ storePerfOptions('mode',[['matched','Same days (fair MTD comparison)'],['full','Full uploaded month']]);
+ storePerfOptions('product',uniq(all.map(r=>r._productType||'Unclassified')),'All product types');
+ storePerfOptions('dealer',uniq(all.map(r=>r._customer||'Unassigned')),'All dealers');
+ storePerfOptions('area',uniq(all.map(r=>r._area||'Unassigned')),'All areas');
+ const geography=all.filter(r=>passes(r._area||'Unassigned',storePerfState.area)&&passes(r._customer||'Unassigned',storePerfState.dealer));
+ storePerfOptions('subregion',uniq(geography.map(r=>r._asm||'Unassigned')),'All subregions');
+ storePerfOptions('type',uniq(all.map(r=>r._channel||'Unassigned')),'All customer types');
+ storePerfOptions('model',uniq(all.filter(r=>passes(r._productType,storePerfState.product)).map(r=>r._model||'Unassigned')),'All models');
+ storePerfDrills=[];const report=storePerfReport(all,storePerfState,storePerfState.view),p=report.period;
+ const period=p.mode==='matched'?`${monthName(p.month)} 1–${p.currentEnd||'—'} vs ${monthName(p.previous)} 1–${p.previousEnd||'—'}`:`${monthName(p.month)} through day ${p.currentLatest||'—'} vs ${monthName(p.previous)} through day ${p.previousLatest||'—'}`;
+ $('sp-period').textContent=period+'. '+(p.comparable?'Loss share = each row’s lost units ÷ all lost units in its table; gains are shown separately.':'Comparable data unavailable: change and decline figures stay blank until both periods have sufficient source coverage. Try Same days for an unfinished month.')+' Geography and dealer reflect the sales record at the time of sale. Returns are included. These filters apply only to this tab.';
+ $('storesSection').querySelectorAll('[data-sp-view]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.spView===storePerfState.view)));
+ const kpis=[['Current period units',storePerfFormat(report.total.current),monthName(p.month)],['Comparison units',storePerfFormat(report.total.previous),monthName(p.previous)],['Net unit change',(report.total.gap>0?'+':'')+storePerfFormat(report.total.gap),storePerfChange(report.total)],['Lost units',storePerfFormat(report.lost),'Before offsetting gains'],['Gained units',storePerfFormat(report.gained),'Offset to lost units'],['Declining '+({store:'stores',dealer:'dealers',area:'areas',subregion:'subregions'}[storePerfState.view]),storePerfFormat(report.declining),'Both periods, same filters']];
+ $('sp-kpis').innerHTML=kpis.map(([label,value,note])=>`<article class="card sp-kpi"><span>${label}</span><strong>${value}</strong><small>${note}</small></article>`).join('');
+ const search=storePerfState.search.trim().toLowerCase(),matches=g=>!search||[g.label,...g.dealers,...g.areas,...g.subregions,...g.stores].join(' ').toLowerCase().includes(search),visible=report.rows.filter(matches);
+ $('sp-summary-title').textContent=({store:'Store',dealer:'Dealer',area:'Area',subregion:'Subregion'}[storePerfState.view])+' comparison';
+ $('sp-summary-note').textContent='Click a name for store, model and seller contributions below. '+(search?'Search shows '+visible.length+' of '+report.rows.length+' rows; totals and decline shares retain the entire filtered scope.':'Largest declines first. Stores with previous sales but zero current sales remain included.');
+ storePerfTable('sp-summary',report,{kind:storePerfState.view,rows:visible,clickable:true,context:storePerfState.view==='store'});
+ const history=$('sp-history'),historyTable=history.closest('table');
+ if(historyTable.tHead.rows[0]?.cells.length!==report.months.length+1&&typeof tableSortState!=='undefined')tableSortState.delete(historyTable);
+ historyTable.tHead.innerHTML='<tr><th scope="col">'+escapeHtml(storePerfState.view)+'</th>'+report.months.map(m=>'<th scope="col">'+escapeHtml(monthName(m))+(p.latest.get(m)&&p.latest.get(m)<storePerfDays(m)?' *':'')+'</th>').join('')+'</tr>';
+ const historyRow=(g,click)=>'<tr><td>'+(click?`<button class="sp-drill" type="button" data-sp-drill="${storePerfDrills.push({kind:storePerfState.view,key:g.key,label:g.label})-1}">${escapeHtml(g.label)}</button>`:escapeHtml(g.label))+'</td>'+g.monthly.map(v=>`<td data-sort-value="${v??''}">${storePerfFormat(v)}</td>`).join('')+'</tr>';
+ history.innerHTML=report.history.filter(matches).map(g=>historyRow(g,true)).join('')||emptyRow(report.months.length+1);historyTable.tFoot.innerHTML=historyRow(report.total,false);
+ $('sp-history-note').textContent='Full uploaded month totals, independent of Same days. * = source has not reached month end; — = month missing. No current sale means 0 only when that month is present. Search does not change totals.';
+ const focus=storePerfState.focus;
+ $('sp-focus-title').textContent='Contribution: '+(focus?[...(focus.parents||[]),focus].map(part=>part.label).join(' › '):'all selected sales');
+ $('sp-focus-note').textContent=period+'. Each table independently reconciles to the same selected sales. Promoters, frontliners and other/unassigned sellers are kept separate. Historical assignments are preserved when a person transfers.';
+ $('storesSection').querySelector('[data-sp-clear]').hidden=!focus;
+ for(const [id,kind] of [['sp-detail-stores','store'],['sp-models','model'],['sp-promoters','promoter']])storePerfTable(id,storePerfReport(all,storePerfState,kind,focus),{kind,clickable:kind==='store',context:kind==='store'});
+ if(typeof refreshTableSorting==='function')refreshTableSorting();
+}
 
 // Device-local display preference; never changes shared dashboard data.
 (()=>{
