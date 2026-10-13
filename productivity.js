@@ -67,6 +67,81 @@ function productivitySummary(all,month){
  }
  return result;
 }
+// NHT performance: current active assignments, tenure at the unfiltered monthly cutoff.
+function nhtSalesReport(all,roster,month){
+ const start=productivityHireDay(month+'-01');
+ const cutoff=all.filter(r=>modelMonthKey(r._date)===month).reduce((d,r)=>Math.max(d,productivityCalendarDay(r._date)??-Infinity),-Infinity);
+ const report={month,start,cutoff,people:[],issues:[],dataDays:new Set(),ready:!!roster&&Number.isFinite(cutoff)&&start!==null,excludedBeforeHire:0};
+ if(!report.ready)return report;
+ const [year,m]=month.split('-').map(Number),end=Math.floor(Date.UTC(year,m,0)/86400000);
+ const members=new Map(),byId=new Map(),byName=new Map(),nameIds=new Map();
+ for(const entry of roster.entries){
+  const id=rosterCode(entry.id),key=id?'id:'+id:'name:'+rosterName(entry.name);if(members.has(key))continue;
+  const person={key,id,name:entry.name,area:entry.area||'Unassigned',subregion:entry.asm||'Unassigned',dealer:entry.customer||'Unassigned',store:entry.store||'Unassigned',channel:'Unassigned',channelDay:-Infinity,hireValues:new Set(),hireDay:-Infinity,rows:[]};
+  members.set(key,person);if(id)byId.set(id,person);
+  const name=rosterName(entry.name);if(name){if(!byName.has(name))byName.set(name,[]);byName.get(name).push(person);}
+ }
+ const dated=all.filter(r=>{const day=productivityCalendarDay(r._date);return day!==null&&day<=cutoff;});
+ report.dataDays=new Set(dated.map(r=>productivityCalendarDay(r._date)));
+ for(const r of dated){const id=rosterCode(r._ps),name=rosterName(find(r,'PS Name','Promoter Name'));if(id&&name){if(!nameIds.has(name))nameIds.set(name,new Set());nameIds.get(name).add(id);}}
+ for(const row of dated){
+  const id=rosterCode(row._ps),name=rosterName(find(row,'PS Name','Promoter Name')),candidates=byName.get(name)||[],ids=nameIds.get(name);
+  let person=id?byId.get(id):null;
+  if(!person&&candidates.length===1){
+   const candidate=candidates[0];
+   // A name is only a fallback when IDs do not contradict or identify different people.
+   if((!id||!candidate.id)&&(!ids||ids.size===1&&(!candidate.id||ids.has(candidate.id))))person=candidate;
+  }
+  if(!person)continue;
+  const day=productivityCalendarDay(row._date),hire=normalize(find(row,'SR Hire Date','Hire Date'));
+  if(hire&&day>=person.hireDay){if(day>person.hireDay)person.hireValues.clear();person.hireValues.add(productivityHireDay(hire));person.hireDay=day;}
+  if(normalize(row._customer)===person.dealer&&normalize(row._channel)&&day>=person.channelDay){person.channel=row._channel;person.channelDay=day;}
+  if(row._productType==='SMARTPHONE'&&['SP','NHT'].includes(normalize(find(row,'SR Role')).toUpperCase())&&Number.isFinite(row._qty))person.rows.push(row);
+ }
+ for(const person of members.values()){
+  const values=[...person.hireValues],hire=values[0];let reason='';
+  if(!values.length)reason='Missing hire date';else if(values.length>1)reason='Conflicting hire dates';else if(hire===null)reason='Invalid hire date';else if(hire>cutoff)reason='Hire date after cutoff';
+  if(reason){report.issues.push({key:person.key,name:person.name,id:person.id,store:person.store,area:person.area,subregion:person.subregion,dealer:person.dealer,channel:person.channel,reason});continue;}
+  const tenure=cutoff-hire+1;if(tenure>=30)continue;
+  const eligibleDays=cutoff-Math.max(start,hire)+1,fullMonthDays=end-Math.max(start,hire)+1,models=new Map(),daily=new Map();
+  let units=0;
+  for(const row of person.rows){
+   const day=productivityCalendarDay(row._date);if(day<hire){if(day>=start&&row._qty!==0)report.excludedBeforeHire++;continue;}
+   daily.set(day,(daily.get(day)||0)+row._qty);if(day<start)continue;units+=row._qty;
+   const key=normalize(row._modelCode)||row._model||'Unassigned';
+   if(!models.has(key))models.set(key,{key,model:row._model||key,series:row._series||'Unassigned',units:0});models.get(key).units+=row._qty;
+  }
+  report.people.push({key:person.key,id:person.id,name:person.name,area:person.area,subregion:person.subregion,dealer:person.dealer,store:person.store,channel:person.channel,hire,tenure,eligibleDays,units,sellingDays:[...daily].filter(([day,q])=>day>=start&&q>0).length,pace:units/eligibleDays,projection:units/eligibleDays*fullMonthDays,models:[...models.values()].sort((a,b)=>b.units-a.units||a.model.localeCompare(b.model)),timeline:daily,daily:Array.from({length:eligibleDays},(_,i)=>{const day=Math.max(start,hire)+i;return {day,units:daily.get(day)||0};})});
+ }
+ report.people.sort((a,b)=>b.units-a.units||a.name.localeCompare(b.name));return report;
+}
+function nhtSalesTotal(people,label='Total'){
+ const units=people.reduce((sum,p)=>sum+p.units,0);return {label,headcount:people.length,units,productivity:people.length?units/people.length:null,zero:people.filter(p=>p.units===0).length};
+}
+function nhtSalesGroups(people,field){
+ const groups=new Map();for(const p of people){const label=p[field]||'Unassigned';if(!groups.has(label))groups.set(label,[]);groups.get(label).push(p);}
+ return [...groups].map(([label,rows])=>nhtSalesTotal(rows,label)).sort((a,b)=>b.units-a.units||a.label.localeCompare(b.label));
+}
+function nhtSalesWindows(cutoff,workingDays='all'){
+ if(!Number.isFinite(cutoff))return {weeks:Array.from({length:5},()=>({start:null,end:null})),days:Array(10).fill(null)};
+ const weeks=Array.from({length:5},(_,i)=>({start:cutoff-i*7-6,end:cutoff-i*7})),days=[];
+ if(Number.isFinite(cutoff))for(let day=cutoff;days.length<10;day--){const weekday=new Date(day*86400000).getUTCDay();if(workingDays==='all'||workingDays==='sat'&&weekday!==0||workingDays==='fri'&&weekday!==0&&weekday!==6)days.push(day);}
+ return {weeks,days:days.reverse()};
+}
+function nhtSalesWindow(person,report,window){
+ if(window.end<person.hire)return {qty:null,complete:false,reason:'Before hire date'};
+ const first=Math.max(window.start,person.hire);let qty=0,missing=0;
+ for(let day=first;day<=window.end;day++){if(!report.dataDays.has(day))missing++;qty+=person.timeline.get(day)||0;}
+ if(missing===window.end-first+1)return {qty:null,complete:false,reason:'No source data for this period'};
+ return {qty,complete:!missing&&person.hire<=window.start,reason:missing?'Incomplete source dates':person.hire>window.start?'Partial week since hire':''};
+}
+function nhtSalesChange(current,previous){
+ if(!current.complete||!previous.complete||current.qty===null||previous.qty===null)return null;
+ if(previous.qty>0)return {rate:(current.qty-previous.qty)/previous.qty*100};
+ if(previous.qty===0&&current.qty>0)return {isNew:true};
+ return previous.qty===0&&current.qty===0?{rate:0}:null;
+}
+// End NHT performance calculations.
 (()=>{
  const nav=document.createElement('button');nav.className='nav-item';nav.dataset.section='productivity';nav.textContent='Promoter Productivity';document.querySelector('.nav-item[data-section="promoters"]').after(nav);
  const section=document.createElement('section');section.id='productivitySection';section.className='dashboard-section';
@@ -118,4 +193,97 @@ function productivitySummary(all,month){
  ['productivityTarget','productivityPremiumTarget'].forEach(id=>$(id).addEventListener('input',()=>{saved[$('productivityMonth').value]={units:$('productivityTarget').value,premium:$('productivityPremiumTarget').value};try{localStorage.setItem('evis.productivityTargets',JSON.stringify(saved));}catch{}renderProductivity();}));
  document.addEventListener('click',event=>{if(event.target.closest('.nav-item')){if(section.classList.contains('active'))renderProductivity();else $('periodLabel').textContent=monthName(selected('monthFilter'))+' performance';}});
  const before=render;render=()=>{before();renderProductivity();};window.evisProductivity={render:renderProductivity};
+})();
+
+// Kept in the existing authenticated productivity asset so deployments need no new route.
+(()=>{
+ const nav=document.createElement('button');nav.className='nav-item';nav.dataset.section='nht';nav.textContent='NHT Sales Performance';document.querySelector('[data-section="productivity"]').after(nav);
+ document.addEventListener('DOMContentLoaded',()=>document.querySelector('[data-section="productivity"]').after(nav));
+ const section=document.createElement('section');section.id='nhtSection';section.className='dashboard-section';$('productivitySection').after(section);
+ const fields=[['area','Area','All areas'],['subregion','Subregion','All subregions'],['dealer','Dealer','All dealers'],['channel','Customer Type','All customer types']];
+ const headers=items=>'<thead><tr>'+items.map(h=>'<th scope="col">'+h+'</th>').join('')+'</tr></thead>';
+ section.innerHTML=`<article class="card nht-controls-card"><h2>NHT Sales Performance</h2><div class="nht-controls"><label>Month<select id="nhtMonth" aria-label="NHT month"></select></label>${fields.map(([key,label])=>'<label>'+label+'<select id="nhtFilter-'+key+'" aria-label="NHT '+label+'"></select></label>').join('')}</div><div id="nhtPeriod" class="nht-note"></div><div class="nht-note">Current ACTIVE promoters with fewer than 30 calendar days since hire at the selected month’s latest sales date. Hire day is day 1; day 30 is REG PS. Zero-sales NHTs are included when a hire date is available. Smartphone sales only (SP / NHT roles), including returns.</div><div class="nht-note">Assignments and active status follow the current HR roster, including when viewing a past month. Hire dates and customer types use sales records through that month’s cutoff. This page has its own filters.</div><div id="nhtStatus" class="nht-note" role="status"></div></article>
+ <div id="nhtKpis" class="nht-kpis"></div>
+ <article class="card table-card"><div class="card-head"><h2>NHT Summary</h2><label>View by <select id="nhtGroup" aria-label="NHT summary grouping">${fields.map(([key,label])=>'<option value="'+key+'">'+label+'</option>').join('')}</select></label></div><div class="table-wrap"><table id="nhtSummaryTable" data-preserve-customer-types aria-label="NHT sales summary">${headers(['Group','NHT HC','Smartphone sales','Units / NHT','Zero sales','Sales share'])}<tbody id="nhtSummaryBody"></tbody><tfoot data-summary="history" id="nhtSummaryTotal"></tfoot></table></div><div class="nht-note">Click a group to filter the promoter list. Sales ÷ NHT HC includes promoters with zero sales.</div></article>
+ <article class="card table-card"><div class="card-head"><h2>NHT Weekly &amp; Daily Sales</h2><button id="nhtReset" class="secondary-btn" type="button">Reset filters</button></div><div class="table-wrap"><table id="nhtPeopleTable" data-preserve-customer-types aria-label="NHT promoter performance"><thead></thead><tbody id="nhtPeopleBody"></tbody><tfoot id="nhtPeopleTotal" data-summary="history"></tfoot></table></div><div class="nht-note">Click a promoter for model contributions and daily sales. Weeks are rolling 7-day periods ending at the cutoff, including previous months. Each weekly cell shows QTY (IR vs the preceding 7 days). “New” means positive sales after a complete zero-sales week; “—” means unavailable or before hire. * marks a partial week since hire or missing source dates; IR is shown only for two complete weeks. Daily columns follow the selected calendar; individual attendance is not available.</div></article>
+ <article id="nhtDetail" class="card table-card" hidden><div class="card-head"><h2 id="nhtDetailTitle"></h2><button type="button" id="nhtCloseDetail" class="secondary-btn">Close details</button></div><div id="nhtDetailNote" class="nht-note"></div><div class="nht-detail-grid"><div><h3>Model contributions</h3><div class="table-wrap"><table data-preserve-customer-types aria-label="NHT model contributions">${headers(['Model','Series','Smartphone sales','Share'])}<tbody id="nhtModelsBody"></tbody><tfoot data-summary="history" id="nhtModelsTotal"></tfoot></table></div></div><div><h3>Daily sales</h3><div class="table-wrap"><table data-preserve-customer-types aria-label="NHT daily sales">${headers(['Date','Smartphone sales'])}<tbody id="nhtDaysBody"></tbody><tfoot data-summary="history" id="nhtDaysTotal"></tfoot></table></div></div></div></article>
+ <article class="card nht-quality"><details id="nhtQuality"><summary id="nhtQualitySummary">Hire-date checks</summary><div class="nht-note">These active promoters cannot be confirmed as NHT at this cutoff and are excluded from the NHT tables. Lists respect the filters above. A missing hire date is never treated as zero tenure.</div><div class="table-wrap"><table data-preserve-customer-types aria-label="NHT hire-date checks">${headers(['Promoter','Current store','Subregion','Reason'])}<tbody id="nhtQualityBody"></tbody><tfoot data-summary="history"></tfoot></table></div></details></article>`;
+ const style=document.createElement('style');style.textContent=`body:has(#nhtSection.active) .main>.filters,#nhtSection .dashboard-fullscreen>.filters{display:none!important}#nhtSection{min-width:0}#nhtSection [hidden]{display:none!important}#nhtSection>.card,#nhtSection>.nht-kpis{margin-bottom:18px}.nht-controls-card,.nht-quality{padding:20px}.nht-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px;margin-top:16px}.nht-controls label{display:flex;flex-direction:column;gap:7px;font-size:12px;font-weight:600}#nhtSection select{min-width:0;max-width:100%;padding:10px;border:1px solid #d8dce2;border-radius:8px;background:var(--card,#fff);color:var(--ink,#17191c);font:inherit}.nht-note{display:block!important;color:var(--muted,#6b7280);font-size:12px;line-height:1.6;margin:12px 0 0}.nht-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.nht-kpis .card{padding:18px}.nht-kpis span{font-size:12px;color:var(--muted)}.nht-kpis strong{display:block;font-size:26px;margin-top:8px}.nht-kpis small{display:block;margin-top:5px;color:var(--muted)}#nhtSection table{width:100%;min-width:640px;font-variant-numeric:tabular-nums}#nhtPeopleTable{min-width:2250px}#nhtPeopleTable th{text-align:center;position:static}#nhtPeopleTable td:nth-child(n+5){text-align:center}#nhtPeopleTable small.nht-ir{white-space:nowrap}#nhtSection td small.nht-up{color:#218644}#nhtSection td small.nht-down{color:#c73333}#nhtSection td small.nht-flat{color:#3474c4}#nhtPeopleTable thead tr:first-child th:nth-last-child(2){background:#dce9ff}#nhtPeopleTable thead tr:first-child th:last-child{background:#e8e0f4}#nhtPeopleTable td:first-child{min-width:155px}#nhtPeopleTable td:nth-child(2){min-width:285px}#nhtPeopleTable td:nth-child(3){min-width:110px}#nhtPeopleTable td:nth-child(n+5){min-width:98px}#nhtSection th{font-size:11px}#nhtSection td{font-size:13px}#nhtSection td small{display:block;color:var(--muted);margin-top:4px}#nhtSection td[data-sort-value]{text-align:right;white-space:nowrap}#nhtSection tfoot td{font-weight:700;background:#fff2bc}.nht-link{border:0;background:none;color:inherit;padding:0;font:inherit;text-align:left;text-decoration:underline;cursor:pointer}.nht-link:focus-visible{outline:2px solid #a17d00;outline-offset:3px}.nht-zero{background:#fbe3e3;color:#a4262c}.nht-detail-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:18px}.nht-quality summary{cursor:pointer;font-weight:600}html[data-theme=night] #nhtSection select{background:#24272c;color:#eee;border-color:#555}html[data-theme=night] #nhtSection tfoot td{background:#3f3516!important;color:#ffe397!important}html[data-theme=night] #nhtSection .nht-zero{background:#482626!important;color:#ffb6b6!important}html[data-mobile-view] #nhtPeopleTable.mobile-fit-table :is(th,td):first-child{min-width:155px!important}html[data-mobile-view] #nhtPeopleTable.mobile-fit-table :is(th,td):nth-child(2){min-width:285px!important}html[data-theme=night] #nhtSection td small.nht-up{color:#72d79c}html[data-theme=night] #nhtSection td small.nht-down{color:#ff9898}@media(max-width:900px){.nht-detail-grid{grid-template-columns:minmax(0,1fr)}.nht-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}`;document.head.append(style);
+ let current=null,visible=[],detailKey=null;
+ const workingDays=document.createElement('label');workingDays.innerHTML='Daily calendar<select id="nhtWorkingDays" aria-label="NHT daily calendar"><option value="all">All days (retail)</option><option value="sat">Monday–Saturday</option><option value="fri">Monday–Friday</option></select>';section.querySelector('.nht-controls').append(workingDays);
+ const esc=escapeHtml;
+ const dayText=day=>Number.isFinite(day)?new Date(day*86400000).toLocaleDateString(undefined,{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'}):'—';
+ const numberCell=(value,d=0,cls='')=>'<td class="'+cls+'" data-sort-value="'+(value??'')+'">'+(value===null?'—':fmt(value,d))+'</td>';
+ const empty=cols=>'<tr><td colspan="'+cols+'">No matching NHT promoters.</td></tr>';
+ function options(id,values,allLabel){
+  const el=$(id),previous=el.value,desired=(allLabel?[['ALL',allLabel]]:[]).concat(values.map(v=>[v,allLabel?v:monthName(v)]));
+  if(JSON.stringify([...el.options].map(o=>[o.value,o.textContent]))!==JSON.stringify(desired))el.innerHTML=desired.map(([value,label])=>'<option value="'+esc(value)+'">'+esc(label)+'</option>').join('');
+  el.value=desired.some(([value])=>value===previous)?previous:desired[0]?.[0]||'';
+ }
+ function matches(p){return fields.every(([field])=>passes(p[field],$('nhtFilter-'+field).value));}
+ function closeDetail(){detailKey=null;$('nhtDetail').hidden=true;$('nhtModelsBody').replaceChildren();$('nhtDaysBody').replaceChildren();}
+ function renderDetail(){
+  const p=visible.find(p=>p.key===detailKey);if(!p){closeDetail();return;}
+  $('nhtDetail').hidden=false;$('nhtDetailTitle').textContent=p.name+' · '+fmt(p.units)+' smartphone units';
+  $('nhtDetailNote').textContent=p.store+' · '+p.dealer+' · '+monthName(current.month)+' through '+dayText(current.cutoff)+'. Model and daily totals include returns and reconcile to the promoter total.';
+  $('nhtModelsBody').innerHTML=p.models.map(m=>'<tr><td>'+esc(m.model)+'</td><td>'+esc(m.series)+'</td>'+numberCell(m.units)+numberCell(p.units>0?m.units/p.units*100:null,1)+'</tr>').join('')||'<tr><td colspan="4">No eligible smartphone sales recorded.</td></tr>';
+  // Percent signs are added separately so sorting keeps the numeric value.
+  [...$('nhtModelsBody').rows].filter(r=>r.cells.length===4).forEach(r=>{if(r.cells[3].textContent!=='—')r.cells[3].append('%');});
+  $('nhtModelsTotal').innerHTML='<tr><td>Total</td><td></td>'+numberCell(p.units)+'<td>'+(p.units>0?'100.0%':'—')+'</td></tr>';
+  $('nhtDaysBody').innerHTML=p.daily.map(d=>'<tr><td data-sort-value="'+d.day+'">'+esc(dayText(d.day))+'</td>'+numberCell(d.units,0,d.units===0?'nht-zero':'')+'</tr>').join('');
+  $('nhtDaysTotal').innerHTML='<tr><td>Total</td>'+numberCell(p.units)+'</tr>';
+ }
+ function renderTrends(){
+  const table=$('nhtPeopleTable'),windows=nhtSalesWindows(current.cutoff,$('nhtWorkingDays').value);
+  const shortDay=day=>Number.isFinite(day)?new Date(day*86400000).toLocaleDateString(undefined,{timeZone:'UTC',day:'numeric',month:'short'}):'—';
+  const signature=JSON.stringify([current.month,windows]);
+  if(table.dataset.nhtHead!==signature){
+   table.dataset.nhtHead=signature;if(typeof tableSortState!=='undefined')tableSortState.delete(table);
+   const main=['Promoter','Current store / dealer','Hire date / tenure','Month to date'];
+   table.tHead.innerHTML='<tr>'+main.map((label,i)=>'<th scope="col" rowspan="2" data-sort-column="'+i+'">'+label+'</th>').join('')+'<th scope="colgroup" colspan="4">Weekly sales · QTY (IR)</th><th scope="colgroup" colspan="10">Last 10 days · '+esc($('nhtWorkingDays').selectedOptions[0].textContent)+'</th></tr><tr>'+windows.weeks.slice(0,4).map((w,i)=>'<th scope="col" data-sort-column="'+(i+4)+'">'+(Number.isFinite(w.start)?esc(shortDay(w.start)+'–'+shortDay(w.end)):'—')+'</th>').join('')+windows.days.map((day,i)=>'<th scope="col" data-sort-column="'+(i+8)+'">'+esc(shortDay(day))+'</th>').join('')+'</tr>';
+  }
+  const weekValues=p=>windows.weeks.map(w=>nhtSalesWindow(p,current,w));
+  const weeklyCell=(w,previous)=>{
+   const change=nhtSalesChange(w,previous),rate=change?.isNew?'New':change?(change.rate>0?'+':'')+pct(change.rate):'—',cls=change?.isNew||change?.rate>0?'nht-up':change?.rate<0?'nht-down':'nht-flat';
+   return '<td data-sort-value="'+(w.qty??'')+'" title="'+esc(w.reason||'Complete 7-day period')+'">'+(w.qty===null?'—':fmt(w.qty)+(!w.complete?'*':''))+' <small class="nht-ir '+cls+'">('+esc(rate)+')</small></td>';
+  };
+  const dailyCell=w=>'<td title="'+esc(w.reason)+'" class="'+(w.qty===0?'nht-zero':'')+'" data-sort-value="'+(w.qty??'')+'">'+(w.qty===null?'—':fmt(w.qty))+'</td>';
+  $('nhtPeopleBody').innerHTML=visible.map(p=>{const weeks=weekValues(p);return '<tr><td><button type="button" class="nht-link" data-nht-person="'+esc(p.key)+'">'+esc(p.name)+'</button><small>'+esc(p.id||'No promoter ID')+'</small></td><td>'+esc(p.store)+'<small>'+esc(p.dealer)+'</small><small>'+esc(p.subregion)+'</small></td><td data-sort-value="'+p.hire+'">'+esc(dayText(p.hire))+'<small>'+p.tenure+' days</small></td>'+numberCell(p.units,0,p.units===0?'nht-zero':'')+weeks.slice(0,4).map((w,i)=>weeklyCell(w,weeks[i+1])).join('')+windows.days.map(day=>dailyCell(nhtSalesWindow(p,current,{start:day,end:day}))).join('')+'</tr>';}).join('')||empty(18);
+  const combine=w=>{const values=visible.map(p=>nhtSalesWindow(p,current,w)),known=values.filter(v=>v.qty!==null);return {qty:known.length?known.reduce((sum,v)=>sum+v.qty,0):null,complete:values.length>0&&values.every(v=>v.complete),reason:values.every(v=>v.complete)?'':'Includes pre-hire or incomplete periods'};};
+  const totals=windows.weeks.map(combine);
+  $('nhtPeopleTotal').innerHTML=visible.length?'<tr><td>Total · '+fmt(visible.length)+' NHT</td><td></td><td></td>'+numberCell(nhtSalesTotal(visible).units)+totals.slice(0,4).map((w,i)=>weeklyCell(w,totals[i+1])).join('')+windows.days.map(day=>dailyCell(combine({start:day,end:day}))).join('')+'</tr>':'';
+ }
+ function renderNht(){
+  if(!section.classList.contains('active'))return;
+  const all=salesEnriched(),months=uniq(all.map(r=>modelMonthKey(r._date)).filter(Boolean)).sort().reverse();options('nhtMonth',months);
+  const roster=window.evisRoster?.getRoster();current=nhtSalesReport(all,roster,$('nhtMonth').value);
+  let available=[...current.people,...current.issues];
+  for(const [field,,allLabel] of fields){options('nhtFilter-'+field,uniq(available.map(p=>p[field])),allLabel);available=available.filter(p=>passes(p[field],$('nhtFilter-'+field).value));}
+  visible=current.people.filter(matches);const issues=current.issues.filter(matches),total=nhtSalesTotal(visible);
+  $('nhtPeriod').textContent=Number.isFinite(current.cutoff)?monthName(current.month)+' · sales through '+dayText(current.cutoff):'No sales dates available for the selected month.';
+  const notes=[];if(!roster)notes.push('Waiting for the active HR roster.');if(current.ready&&!visible.length)notes.push('No confirmed NHT promoters match these filters.');if(issues.length)notes.push(fmt(issues.length)+' active promoters need hire-date review; see Hire-date checks below.');if(current.excludedBeforeHire)notes.push(fmt(current.excludedBeforeHire)+' smartphone sale rows dated before hire were excluded from the monthly NHT report.');$('nhtStatus').textContent=notes.join(' ');
+  const kpis=[['Active NHT',current.ready?fmt(total.headcount):'—','Under 30 days at cutoff'],['Smartphone sales',current.ready?fmt(total.units):'—','Selected month to cutoff'],['Units / NHT',current.ready&&total.productivity!==null?fmt(total.productivity,1):'—','Includes zero-sales NHTs'],['Zero sales',current.ready?fmt(total.zero):'—','Net smartphone sales = 0']];
+  $('nhtKpis').innerHTML=kpis.map(([label,value,note])=>'<article class="card"><span>'+label+'</span><strong>'+value+'</strong><small>'+note+'</small></article>').join('');
+  const group=$('nhtGroup').value;
+  const summaryRow=(g,linked)=>'<tr><td>'+(linked?'<button type="button" class="nht-link" data-nht-group="'+esc(g.label)+'">'+esc(g.label)+'</button>':esc(g.label))+'</td>'+numberCell(g.headcount)+numberCell(g.units)+numberCell(g.productivity,1)+numberCell(g.zero)+'<td data-sort-value="'+(total.units>0?g.units/total.units*100:'')+'">'+(total.units>0?pct(g.units/total.units*100):'—')+'</td></tr>';
+  $('nhtSummaryBody').innerHTML=nhtSalesGroups(visible,group).map(g=>summaryRow(g,true)).join('')||empty(6);$('nhtSummaryTotal').innerHTML=current.ready?summaryRow(total,false):'';
+  renderTrends();
+  $('nhtQualitySummary').textContent='Hire-date checks · '+fmt(issues.length)+' active promoters excluded';
+  $('nhtQualityBody').innerHTML=issues.map(p=>'<tr><td>'+esc(p.name)+'<small>'+esc(p.id)+'</small></td><td>'+esc(p.store)+'</td><td>'+esc(p.subregion)+'</td><td>'+esc(p.reason)+'</td></tr>').join('')||'<tr><td colspan="4">No hire-date issues in this selection.</td></tr>';
+  renderDetail();if(typeof refreshTableSorting==='function')refreshTableSorting();
+ }
+ function clearFilters(){for(const [field] of fields)$('nhtFilter-'+field).value='ALL';closeDetail();renderNht();}
+ section.addEventListener('change',event=>{if(event.target.matches('select')){closeDetail();if(event.target.id==='nhtMonth')clearFilters();else renderNht();}});
+ $('nhtReset').addEventListener('click',clearFilters);$('nhtCloseDetail').addEventListener('click',closeDetail);
+ // Full-screen cards can move outside the section, so drilldown actions use document delegation.
+ document.addEventListener('click',event=>{
+  const person=event.target.closest('[data-nht-person]'),group=event.target.closest('[data-nht-group]');
+  if(person||group){document.querySelector('.dashboard-fullscreen [aria-label="Close full screen"]')?.click();}
+  if(person){detailKey=person.dataset.nhtPerson;renderDetail();if(typeof refreshTableSorting==='function')refreshTableSorting();$('nhtDetail').scrollIntoView({behavior:'smooth',block:'start'});}
+  if(group){$('nhtFilter-'+$('nhtGroup').value).value=group.dataset.nhtGroup;closeDetail();renderNht();$('nhtPeopleTable').scrollIntoView({behavior:'smooth',block:'start'});}
+  if(event.target.closest('.nav-item')){if(section.classList.contains('active'))renderNht();else closeDetail();}
+ });
+ const before=render;render=()=>{before();renderNht();};
+ const beforeRoster=window.evisProductivity.render;window.evisProductivity.render=()=>{beforeRoster();renderNht();};
+ window.evisNhtPerformance={render:renderNht};
 })();
