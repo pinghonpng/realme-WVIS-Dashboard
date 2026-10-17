@@ -166,16 +166,16 @@ const renderBeforeFinancials=render;render=()=>{renderBeforeFinancials();renderF
 (()=>{
  const ids=['monthFilter','productTypeFilter','areaFilter','asmFilter','customerFilter','channelFilter','modelFilter','seriesFilter','priceRangeFilter'];
  const bar=document.querySelector('.filters'),history=[];
- const read=()=>Object.fromEntries(ids.map(id=>[id,$(id).value]));
+ const read=()=>Object.fromEntries(ids.map(id=>[id,selected(id)]));
  let current=read();
  const actions=document.createElement('div');actions.className='filter-actions';
  actions.innerHTML='<button type="button" class="secondary-btn" id="clearFiltersBtn">Clear Filter</button><button type="button" class="secondary-btn" id="undoFiltersBtn" disabled>Undo</button>';
  bar.prepend(actions);
  const style=document.createElement('style');style.textContent='.filter-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:8px}.filter-actions .secondary-btn{margin:0;padding:7px 13px}.filter-actions button:disabled{opacity:.45;cursor:default}';document.head.appendChild(style);
- const same=(a,b)=>ids.every(id=>a[id]===b[id]);
- function controls(){$('undoFiltersBtn').disabled=!history.length;$('clearFiltersBtn').disabled=ids.slice(1).filter(id=>id!=='productTypeFilter').every(id=>$(id).value==='ALL');}
+ const same=(a,b)=>ids.every(id=>JSON.stringify(a[id])===JSON.stringify(b[id]));
+ function controls(){$('undoFiltersBtn').disabled=!history.length;$('clearFiltersBtn').disabled=ids.slice(1).filter(id=>id!=='productTypeFilter').every(id=>selected(id)==='ALL');}
  function remember(next){if(same(current,next))return;history.push(current);if(history.length>100)history.shift();current=next;controls();}
- function apply(next){$('productTypeFilter').value=next.productTypeFilter;productFilterOptions();ids.forEach(id=>{$(id).value=next[id];});current=read();controls();render();}
+ function apply(next){setFilterSelection('productTypeFilter',next.productTypeFilter);productFilterOptions();ids.forEach(id=>setFilterSelection(id,next[id]));current=read();controls();render();}
  bar.addEventListener('change',event=>{if(ids.includes(event.target.id)){const next=read();if(event.target.id==='productTypeFilter'){next.modelFilter='ALL';next.seriesFilter='ALL';}remember(next);}},true);
  $('clearFiltersBtn').addEventListener('click',()=>{const next={...read()};ids.slice(1).filter(id=>id!=='productTypeFilter').forEach(id=>next[id]='ALL');remember(next);apply(next);});
  $('undoFiltersBtn').addEventListener('click',()=>{if(history.length)apply(history.pop());});
@@ -254,7 +254,7 @@ function overviewRequiredRate(units,target,remaining){return target==null?null:u
 function overviewTerritoryTarget(all,members,month,area,subregion){
  const totals={units:6655,score:77440},areas=['EVIS','NEGROS','PANAY'];
  if(month!=='2026-09')return {reason:'No target set for this month'};
- const chosen=areas.filter(a=>area==='ALL'||a===area);
+ const chosen=areas.filter(a=>passes(a,area));
  if(subregion==='ALL')return {units:totals.units*chosen.length/3,score:totals.score*chosen.length/3};
  if(!members)return {reason:'Waiting for active promoter list'};
  const months=['2026-06','2026-07','2026-08'],coverage=new Map();
@@ -266,7 +266,8 @@ function overviewTerritoryTarget(all,members,month,area,subregion){
   const quantities=new Map();history.forEach(r=>quantities.set(r._asm,(quantities.get(r._asm)||0)+r._qty));
   const total=[...quantities.values()].reduce((sum,n)=>sum+Math.max(0,n),0);
   if(!(total>0)||!ps.length)return {reason:'Sales history and active headcount needed for allocation'};
-  weight+=(.5*Math.max(0,quantities.get(subregion)||0)/total+.5*ps.filter(r=>r._asm===subregion).length/ps.length)/3;
+  const selectedUnits=[...quantities].filter(([name])=>passes(name,subregion)).reduce((sum,[,qty])=>sum+Math.max(0,qty),0);
+  weight+=(.5*selectedUnits/total+.5*ps.filter(r=>passes(r._asm,subregion)).length/ps.length)/3;
  }
  return {units:totals.units*weight,score:totals.score*weight};
 }
@@ -363,7 +364,7 @@ function effectiveRosterTotals(roster,kind,filters,all,onlyTop50=false){
  for(const entry of roster.entries){
   const dealer=entry.customer||'Unassigned',record=latest.get('ps:'+norm(entry.id))||latest.get('store:'+norm(entry.sid)),values={_area:entry.area,_asm:entry.asm,_customer:dealer,_channel:record?._channel||'Unassigned'};
   if(onlyTop50&&!isTop50Dealer(dealer))continue;
-  if(!filters.filter(([key])=>['_area','_asm','_customer','_channel'].includes(key)).every(([key,value])=>value==='ALL'||norm(values[key])===norm(value)))continue;
+  if(!filters.filter(([key])=>['_area','_asm','_customer','_channel'].includes(key)).every(([key,value])=>value==='ALL'||(Array.isArray(value)?value:[value]).some(v=>norm(values[key])===norm(v))))continue;
   const key=kind==='effectiveStore'?(entry.sid?'id:'+norm(entry.sid):entry.store?'name:'+norm(entry.store):''):(entry.id?'id:'+norm(entry.id):'name:'+norm(entry.name));
   if(!key)continue;
   const dealerKey=norm(dealer);if(!groups.has(dealerKey))groups.set(dealerKey,{dealer,keys:new Set()});groups.get(dealerKey).keys.add(key);unique.add(key);

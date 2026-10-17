@@ -15,7 +15,7 @@ function rosterParse(rows){
 function rosterIsActive(roster,id,name){if(!roster)return null;const code=rosterCode(id),key=rosterName(name);if(!code&&!key)return null;return code?(roster.ids.has(code)||roster.namesWithoutId.has(key)):roster.names.has(key);}
 function activePerformanceRows(rows,roster,filters,stores){
  if(!roster)return [];
- const matches=(value,selected)=>selected==='ALL'||normalize(value).toLowerCase()===normalize(selected).toLowerCase();
+ const matches=(value,selection)=>selection==='ALL'||(Array.isArray(selection)?selection:[selection]).some(s=>normalize(value).toLowerCase()===normalize(s).toLowerCase());
  const entries=roster.entries.filter(e=>matches(e.area,filters.area)&&matches(e.asm,filters.asm)&&matches(e.customer,filters.customer)&&matches(find(stores.get(e.sid)||{},'Channel','Store Type'),filters.channel));
  const byId=new Map(entries.filter(e=>e.id).map(e=>[e.id,e])),byName=new Map(entries.map(e=>[rosterName(e.name),e])),seen=new Set(),result=[];
  rows.forEach(row=>{

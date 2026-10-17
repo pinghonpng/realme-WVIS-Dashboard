@@ -98,7 +98,7 @@ function renderOverviewMix(rows){
 
 function dealerTrendData(all,mode,month,filters){
  const top=['RULLS CELLPHONES','Cellcom Word Communications','GALLEON ENTERPRISES','PLAY TELECOM','D Cell City'],topSet=new Set(top);
- const selectedDealer=filters.find(([key])=>key==='_customer')?.[1];if(selectedDealer&&selectedDealer!=='ALL')topSet.add(selectedDealer);
+ const selectedDealer=filters.find(([key])=>key==='_customer')?.[1];if(selectedDealer&&selectedDealer!=='ALL')(Array.isArray(selectedDealer)?selectedDealer:[selectedDealer]).forEach(dealer=>topSet.add(dealer));
  const mapped=all.map(r=>({...r,_dealerTrend:topSet.has(r._customer||'Unassigned')?(r._customer||'Unassigned'):'Others'}));
  const data=overviewTrendData(mapped,mode,month,filters,'_dealerTrend');data.series.sort((a,b)=>(a.name==='Others'?99:top.indexOf(a.name))-(b.name==='Others'?99:top.indexOf(b.name)));
  return {...data,top,mapped};
@@ -111,7 +111,7 @@ function renderDealerTrend(){
  if(showMom)scales.growth={beginAtZero:true,position:'left',stack:'trend',stackWeight:1,offset:true,title:{display:true,text:'MoM · %'},ticks:{maxTicksLimit:4,callback:v=>(v>0?'+':'')+v+'%'},grid:{color:c=>c.tick.value===0?'#818b9a':'#edf0f3'}};
  scales.sales={position:'left',beginAtZero:true,stack:'trend',stackWeight:2,title:{display:true,text:'Sales · units'},grid:{color:'#edf0f3'},ticks:{maxTicksLimit:5}};
  chart('areaChart','line',data.labels,datasets,{scales,extra:{interaction:{mode:'index',intersect:false},plugins:{legend:{display:true,position:'bottom',labels:{boxWidth:10,font:{size:10},filter:item=>datasets[item.datasetIndex].kind==='sales'},onClick:(event,item,legend)=>{const c=legend.chart,group=c.data.datasets[item.datasetIndex].group,visible=c.isDatasetVisible(item.datasetIndex);c.data.datasets.forEach((d,i)=>{if(d.group===group)c.setDatasetVisibility(i,!visible);});c.update();}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmt(c.parsed.y,1)+(c.dataset.kind==='growth'?'%':' units'),footer:items=>showMom&&items.length?growth[items[0].dataIndex]?.comparison:''}}}}});
- $('dealerTrendPeriod').textContent=data.period+(selected('customerFilter')==='ALL'?' · Top 5 + Others': ' · Selected dealer');$('dealerSmaLabel').textContent='Show '+({daily:'7-day',weekly:'4-week',monthly:'3-month'}[overviewTrendMode])+' SMA';$('dealerMomControl').hidden=!monthly;
+ $('dealerTrendPeriod').textContent=data.period+(selected('customerFilter')==='ALL'?' · Top 5 + Others': ' · Selected dealers');$('dealerSmaLabel').textContent='Show '+({daily:'7-day',weekly:'4-week',monthly:'3-month'}[overviewTrendMode])+' SMA';$('dealerMomControl').hidden=!monthly;
  document.querySelectorAll('[data-trend-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.trendMode===overviewTrendMode)));syncTrendMonthLock();
 }
 (()=>{

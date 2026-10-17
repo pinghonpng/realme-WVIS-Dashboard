@@ -35,7 +35,7 @@ function transactionPriceRange(row,ranges){const srp=rowSrp(row);return srp===nu
  panel.addEventListener('input',edited);
  $('addPriceRange').addEventListener('click',()=>{addRow();edited();});
  $('resetPriceRanges').addEventListener('click',()=>{draw();say(ranges.length?'Saved price ranges restored.':'No price ranges defined yet.');});
- function options(){const select=$('priceRangeFilter'),previous=select.value;select.innerHTML='<option value="ALL">All price ranges</option>'+ranges.map(r=>'<option value="'+escapeHtml(r.name)+'">'+escapeHtml(r.name)+'</option>').join('')+'<option value="Unclassified">Unclassified</option>';select.value=[...select.options].some(o=>o.value===previous)?previous:'ALL';}
+ function options(){setOptions('priceRangeFilter',[...ranges.map(r=>r.name),UNCLASSIFIED_PRICE],'price ranges');}
  function setConfig(value){const next=validatePriceRanges(value||[]);if(JSON.stringify(next)===JSON.stringify(ranges))return;ranges=next;options();if(dirty)say('Shared ranges changed while you were editing. Discard edits to load the latest definitions.');else{draw();say(ranges.length+' shared price ranges loaded.');}}
  $('savePriceRanges').addEventListener('click',async()=>{
   try{

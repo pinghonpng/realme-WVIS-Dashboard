@@ -76,8 +76,8 @@ function pushReport(all,roster,rangeName,view,filters,campaign){
  const sales=new Map();period.filter(r=>pushSeriesMatch(r._series,campaign,r._productType)&&territoryMatch(r)&&productMatch(r)).forEach(r=>sales.set(label(r),(sales.get(label(r))||0)+r._qty));
  const eligible=new Set([...all.filter(territoryMatch),...members.filter(territoryMatch)].map(label));
  if(filters.customer==='ALL'&&filters.channel==='ALL'&&(view==='area'||view==='subregion'))PUSH_TERRITORIES.filter(t=>passes(t[0],filters.area)&&passes(t[1],filters.asm)).forEach(t=>eligible.add(t[view==='area'?0:1]));
- const seriesVisible=['ALL','SMARTPHONE'].includes(filters.productType)&&pushSeriesVisible(campaign,filters.series);
- const modelVisible=filters.model==='ALL'||all.some(r=>r._model===filters.model&&pushSeriesMatch(r._series,campaign,r._productType));
+ const seriesVisible=passes('SMARTPHONE',filters.productType)&&pushSeriesVisible(campaign,filters.series);
+ const modelVisible=filters.model==='ALL'||all.some(r=>passes(r._model,filters.model)&&pushSeriesMatch(r._series,campaign,r._productType));
  const groups=seriesVisible&&modelVisible?[...eligible].sort((a,b)=>a.localeCompare(b)).map(k=>({label:k,target:targets?(targets.get(k)??0):null,sales:period.length?(sales.get(k)||0):null,history:historySum.get(k)||0,headcount:headcounts.get(k)||0})):[];
  const total={label:'WVIS',target:groups.length&&groups.every(g=>g.target!==null)?groups.reduce((s,g)=>s+g.target,0):null,sales:groups.length&&period.length?groups.reduce((s,g)=>s+g.sales,0):null};
  return {groups,total,allocationReady,latest:period.reduce((n,r)=>Math.max(n,r._date.getDate()),0)};
@@ -111,7 +111,7 @@ function pushDistribution(all,roster,filters,campaign,view){
  const day=r=>productivityCalendarDay(r._date);
  const {cutoff,previousCutoff,start,previousStart,available}=pushSnapshotPeriods(all,filters.month);
  const result={groups:[],total:blank('WVIS'),cutoff,previousCutoff,start,previousStart,available};
- if(!roster||!['ALL','SMARTPHONE'].includes(filters.productType)||!Number.isFinite(cutoff))return result;
+ if(!roster||!passes('SMARTPHONE',filters.productType)||!Number.isFinite(cutoff))return result;
  const key={area:'_area',subregion:'_asm',dealer:'_customer',channel:'_channel'}[view];
  // Keep today's ACTIVE roster and the same assignments for both snapshots. Known hires
  // after the earlier cutoff enter only the current snapshot, never its zero-unit bucket.
@@ -120,7 +120,7 @@ function pushDistribution(all,roster,filters,campaign,view){
  const mapped=psSalesReviewData(all,roster,{area:'ALL',asm:'ALL',customer:'ALL',channel:'ALL'},storeMap()).all,sales=new Map(),previousSales=new Map();
  mapped.forEach(r=>{const d=day(r),hired=hires.get(r._reviewPs)?.day;if(d===null||d<Math.min(start,previousStart)||d>cutoff||(hired!=null&&d<hired)||!pushSeriesMatch(r._series,campaign)||!['area','asm','customer','channel','productType','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))return;if(d>=start)sales.set(r._reviewPs,(sales.get(r._reviewPs)||0)+r._qty);if(d>=previousStart&&d<=previousCutoff)previousSales.set(r._reviewPs,(previousSales.get(r._reviewPs)||0)+r._qty);});
  const bucket=q=>q>=15?4:q>=8?3:q>=4?2:q>0?1:0,groups=new Map();
- if(pushSeriesVisible(campaign,filters.series)&&(filters.model==='ALL'||all.some(r=>r._model===filters.model&&pushSeriesMatch(r._series,campaign))))members.forEach(m=>{
+ if(pushSeriesVisible(campaign,filters.series)&&(filters.model==='ALL'||all.some(r=>passes(r._model,filters.model)&&pushSeriesMatch(r._series,campaign))))members.forEach(m=>{
   const label=m[key]||'Unassigned';if(!groups.has(label))groups.set(label,blank(label));const g=groups.get(label),hired=hires.get(m._ps)?.day;
   const units=Math.max(0,sales.get(m._ps)||0),unitBucket=bucket(units);
   g.headcount++;g.counts[unitBucket]++;g.people.push({...m,units,bucket:unitBucket});
