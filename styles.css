@@ -48,9 +48,9 @@ html[data-theme=night] .overview-target-ar strong{color:#edf2f8!important}
 html[data-theme=night] :is(.up,[style*="color:#238747"],[style*="color:#238344"]){color:#78dfaa!important}
 html[data-theme=night] :is(.down,.danger-text,[style*="color:#c93636"],[style*="color:#c63c3c"]){color:#ff9696!important}
 html[data-theme=night] .steady{color:#92bdff!important}
-html[data-theme=night] :is(.badge.good,[data-performance-status=passed],.productivity-cohort-table tbody td:nth-child(3)){background:#193e30!important;color:#a1efbe!important}
-html[data-theme=night] :is(.badge.bad,.asm-resigned,[data-performance-status=low],.productivity-cohort-table tbody td:nth-child(6),.error-banner){background:#4a272e!important;color:#ffb4b4!important}
-html[data-theme=night] :is([data-performance-status=onpace],.productivity-cohort-table tbody td:nth-child(5)){background:#483820!important;color:#ffcf94!important}
+html[data-theme=night] :is(.badge.good,[data-performance-status=passed],.productivity-cohort-table tbody .productivity-both){background:#193e30!important;color:#a1efbe!important}
+html[data-theme=night] :is(.badge.bad,.asm-resigned,[data-performance-status=low],.productivity-cohort-table tbody .productivity-low,.error-banner){background:#4a272e!important;color:#ffb4b4!important}
+html[data-theme=night] :is([data-performance-status=onpace],.productivity-cohort-table tbody :is(.productivity-allOnly,.productivity-premiumOnly)){background:#483820!important;color:#ffcf94!important}
 html[data-theme=night] :is([data-performance-status=pending],.badge){background:#344158;color:#dce5f2}
 html[data-theme=night] :is(dialog.dashboard-fullscreen,.fullscreen-toolbar){background:#101621!important;color:#edf2f8!important}
 html[data-theme=night] .dashboard-fullscreen::backdrop{background:#101621}
