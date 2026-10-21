@@ -47,6 +47,43 @@ function pushLatestPromoters(all,roster){
  }
  return roster.entries.map(e=>{const row=latest.get(e.key);return {_ps:e.key,_name:e.name||e.key,_store:e.store||row?._store||'Unassigned',_area:row?._area||e.area,_asm:row?._asm||e.asm,_customer:row?._customer||e.customer||'Unassigned',_channel:row?._channel||'Unassigned'};});
 }
+// Distribution tables follow current HR assignments, including promoters with no sales.
+// Resolve customer type from the assigned store, then an unambiguous dealer classification.
+// Historical sales and target-allocation assignments are left intact.
+function pushCurrentPromoters(all,roster){
+ if(!roster)return new Map();
+ const clean=v=>normalize(v).replace(/\s+/g,' ').toLocaleLowerCase();
+ const channel=v=>{const value=normalize(v);return !value||/^(unassigned|unclassified)$/i.test(value)?'':({nka:'NKA',rka:'RKA',sme:'SME',inactive:'Inactive'}[clean(value)]||value);};
+ const stores=new Map(),storeNames=new Map(),dealers=new Map();
+ const record=(index,key,row)=>{
+  if(!key)return;const date=Number(row._date);if(!row._date||!Number.isFinite(date))return;
+  let latest=index.get(key);if(!latest||date>latest.date){latest={date,channels:new Set(),customers:new Set()};index.set(key,latest);}
+  if(date!==latest.date)return;
+  const type=channel(row._channel);if(type)latest.channels.add(type);
+  latest.customers.add(clean(row._customer));
+ };
+ for(const row of all){
+  const sid=clean(row._sid),store=clean(row._store),dealer=clean(row._customer);
+  record(stores,sid||store&&'name:'+JSON.stringify([store,dealer]),row);
+  record(storeNames,store&&JSON.stringify([store,dealer]),row);
+ }
+ for(const store of stores.values())for(const dealer of store.customers){
+  if(store.customers.size!==1)continue;
+  if(!dealer)continue;if(!dealers.has(dealer))dealers.set(dealer,new Set());
+  store.channels.forEach(type=>dealers.get(dealer).add(type));
+ }
+ const only=values=>values?.size===1?[...values][0]:'';
+ const latest=new Map(pushLatestPromoters(all,roster).map(p=>[p._ps,p]));
+ return new Map(roster.entries.map(e=>{
+  const prior=latest.get(e.key),dealer=clean(e.customer),sid=clean(e.sid),store=clean(e.store);
+  const assigned=(sid?stores.get(sid):null)||(!sid&&store?storeNames.get(JSON.stringify([store,dealer])):null);
+  const sameDealer=!dealer||assigned?.customers.size===1&&assigned.customers.has(dealer);
+  // Never borrow a former dealer's category after an HR transfer.
+  const sameAssignment=!sid&&!store&&(!dealer||dealer===clean(prior._customer));
+  const type=channel(e.channel)||(sameDealer?only(assigned?.channels):'')||only(dealers.get(dealer))||(sameAssignment?channel(prior._channel):'');
+  return [e.key,{...prior,_sid:e.sid||'',_area:e.area||prior._area,_asm:e.asm||prior._asm,_store:e.store||prior._store,_customer:e.customer||prior._customer,_channel:type||(prior._channel==='Unassigned'?'Unassigned':'Unclassified')}];
+ }));
+}
 function pushReport(all,roster,rangeName,view,filters,campaign){
  if(campaign.components&&campaign.monthlyTargets?.[filters.month]==null)return pushCombinedReport(all,roster,rangeName,view,filters,campaign);
  const key={area:'_area',subregion:'_asm',dealer:'_customer',channel:'_channel'}[view],label=r=>r[key]||'Unassigned';
@@ -116,9 +153,10 @@ function pushDistribution(all,roster,filters,campaign,view){
  // Keep today's ACTIVE roster and the same assignments for both snapshots. Known hires
  // after the earlier cutoff enter only the current snapshot, never its zero-unit bucket.
  const hires=performanceHireDates(all,roster.entries,cutoff);
- const members=pushLatestPromoters(all.filter(r=>day(r)!==null&&day(r)<=cutoff),roster).filter(r=>['area','asm','customer','channel'].every(k=>passes(r['_'+k],filters[k]))&&(hires.get(r._ps)?.day==null||hires.get(r._ps).day<=cutoff));
+ const members=[...pushCurrentPromoters(all,roster).values()].filter(r=>['area','asm','customer','channel'].every(k=>passes(r['_'+k],filters[k]))&&(hires.get(r._ps)?.day==null||hires.get(r._ps).day<=cutoff));
+ const memberIds=new Set(members.map(m=>m._ps));
  const mapped=psSalesReviewData(all,roster,{area:'ALL',asm:'ALL',customer:'ALL',channel:'ALL'},storeMap()).all,sales=new Map(),previousSales=new Map();
- mapped.forEach(r=>{const d=day(r),hired=hires.get(r._reviewPs)?.day;if(d===null||d<Math.min(start,previousStart)||d>cutoff||(hired!=null&&d<hired)||!pushSeriesMatch(r._series,campaign)||!['area','asm','customer','channel','productType','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))return;if(d>=start)sales.set(r._reviewPs,(sales.get(r._reviewPs)||0)+r._qty);if(d>=previousStart&&d<=previousCutoff)previousSales.set(r._reviewPs,(previousSales.get(r._reviewPs)||0)+r._qty);});
+ mapped.forEach(r=>{const d=day(r),hired=hires.get(r._reviewPs)?.day;if(!memberIds.has(r._reviewPs)||d===null||d<Math.min(start,previousStart)||d>cutoff||(hired!=null&&d<hired)||!pushSeriesMatch(r._series,campaign)||!['productType','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))return;if(d>=start)sales.set(r._reviewPs,(sales.get(r._reviewPs)||0)+r._qty);if(d>=previousStart&&d<=previousCutoff)previousSales.set(r._reviewPs,(previousSales.get(r._reviewPs)||0)+r._qty);});
  const bucket=q=>q>=15?4:q>=8?3:q>=4?2:q>0?1:0,groups=new Map();
  if(pushSeriesVisible(campaign,filters.series)&&(filters.model==='ALL'||all.some(r=>passes(r._model,filters.model)&&pushSeriesMatch(r._series,campaign))))members.forEach(m=>{
   const label=m[key]||'Unassigned';if(!groups.has(label))groups.set(label,blank(label));const g=groups.get(label),hired=hires.get(m._ps)?.day;
@@ -142,6 +180,7 @@ function pushDistributionIR(current,previous,bucket,available){
 
 const PUSH_SMARTPHONE_BANDS=['0 Sales','1–10 Sales','11–15 Sales','16–20 Sales','21–25 Sales','26–30 Sales','31+ Sales'];
 function pushSmartphoneHeadcount(all,roster,filters,view,selectedTypes,asOf=null){
+ const assignments=pushCurrentPromoters(all,roster);
  if(asOf!==null)all=all.filter(r=>(productivityCalendarDay(r._date)??Infinity)<=asOf);
  const monthRows=all.filter(r=>modelMonthKey(r._date)===filters.month);
  const cutoff=asOf??monthRows.reduce((n,r)=>Math.max(n,productivityCalendarDay(r._date)??-Infinity),-Infinity);
@@ -167,6 +206,7 @@ function pushSmartphoneHeadcount(all,roster,filters,view,selectedTypes,asOf=null
  const last=latest.get(p.key)||{},e=p.entry,hire=hires.get(p.key)?.day,role=normalize(find(last,'SR Role')).toUpperCase();
  const type=!e?'RESIGNED':hire!=null?(cutoff-hire+1>=30?'REG PS':'NHT'):role==='NHT'?'NHT':role==='SP'?'REG PS':'Unknown';
  Object.assign(p,{_ps:p.key,_name:p.name,_store:e?.store||last._store||'Unassigned',_area:e?.area||last._area||'Unassigned',_asm:e?.asm||last._asm||'Unassigned',_customer:e?.customer||last._customer||'Unassigned',_channel:last._channel||'Unassigned',type});
+ if(e)Object.assign(p,assignments.get(e.key));
  if(!['area','asm','customer','channel'].every(k=>passes(p['_'+k],filters[k])))continue;
  if(type==='Unknown'){result.unknown++;if(selectedTypes.size!==3)continue;}else if(!selectedTypes.has(type))continue;
  p.units=Math.max(0,p.units);p.bucket=p.units===0?0:p.units<=10?1:p.units<=15?2:p.units<=20?3:p.units<=25?4:p.units<=30?5:6;

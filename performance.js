@@ -39,13 +39,24 @@ function performanceCohortData(all,roster,month){
  const cutoff=all.filter(r=>modelMonthKey(r._date)===month).reduce((d,r)=>Math.max(d,productivityCalendarDay(r._date)??-Infinity),-Infinity);
  const hires=performanceHireDates(all,roster,cutoff),types=new Map();
  for(const entry of roster){const hire=hires.get(entry.key)?.day;types.set(entry.key,hire==null?'unknown':hire>cutoff?'future':cutoff-hire+1>=30?'REG PS':'NHT');}
- return {cutoff,types};
+ return {cutoff,types,hires};
 }
 function performanceCohortRows(rows,cohort,types){return cohort==='ALL PS'?rows:rows.filter(r=>types.get(r._ps)===cohort);}
+function performanceDailyAverage(promoters,hires,month,cutoff){
+ const [year,m]=month.split('-').map(Number),monthStart=Date.UTC(year,m-1,1)/86400000;
+ const people=promoters.map(g=>{
+  const hire=hires.get(g.id)?.day,start=hire==null?null:Math.max(monthStart,hire);
+  const days=start!==null&&Number.isFinite(cutoff)&&cutoff>=start?cutoff-start+1:null;
+  const units=days===null?null:g.items.reduce((sum,r)=>{const day=productivityCalendarDay(r._date);return day!==null&&day>=start&&day<=cutoff?sum+r._qty:sum;},0);
+  return {...g,hire,start,days,dailyUnits:units,dailyAverage:days===null?null:units/days};
+ });
+ const days=people.reduce((sum,p)=>sum+(p.days||0),0),units=people.reduce((sum,p)=>sum+(p.dailyUnits||0),0),missing=people.some(p=>p.days===null);
+ return {people,days,units,average:!missing&&days>0?units/days:null};
+}
 const performanceLabels={passed:'Target reached',onpace:'On-Pace',low:'Low performance',pending:'Incomplete / Awaiting scores'};
-function performanceCell(value,promoters,label,status,period){
+function performanceCell(value,promoters,label,status,period,daily=null){
  const people=status?promoters.filter(g=>performanceStatus(g,period)===status):promoters;
- const index=performanceDrilldowns.push({people,label,status,period})-1;
+ const index=performanceDrilldowns.push({people,label,status,period,daily})-1;
  return '<button type="button" class="performance-drilldown" data-performance-drilldown="'+index+'" aria-label="'+escapeHtml('Show promoters: '+label+' · '+(performanceStatusLabel(status,period.measure)||'All promoters'))+'">'+value+'</button>';
 }
 function renderTerritoryPerformance(rows){
@@ -59,21 +70,25 @@ function renderTerritoryPerformance(rows){
   const ids=new Set(rows.map(r=>r._ps)),unknown=[...ids].filter(id=>!cohortData.types.has(id)||cohortData.types.get(id)==='unknown').length,future=[...ids].filter(id=>cohortData.types.get(id)==='future').length;
   ['area','subregion'].forEach(kind=>{
     const cohort=performanceCohorts[kind],groups=territoryPerformance(performanceCohortRows(rows,cohort,cohortData.types),kind==='area'?'_area':'_asm',period);
+    const perDay=qty&&cohort==='NHT';
+    const dailyFor=promoters=>performanceDailyAverage(promoters,cohortData.hires,selected('monthFilter'),cohortData.cutoff);
+    if(perDay)groups.forEach(g=>{g.daily=dailyFor(g.promoters);g.average=g.daily.average;});
     document.querySelectorAll('[data-performance-kind="'+kind+'"]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.performanceCohort===cohort)));
     const cutoffLabel=Number.isFinite(cohortData.cutoff)?new Date(cohortData.cutoff*86400000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}):'date unavailable';
-    $('performance'+kind+'CohortNote').textContent='Current active PS · '+cohort+' · Tenure as of '+cutoffLabel+'. REG PS: 30+ calendar days; NHT: under 30 days (hire day counts as day 1).'+(unknown?' '+unknown+' with unavailable hire dates appear in ALL PS only.':'')+(future?' '+future+' hired after the cutoff appear in ALL PS only.':'');
+    $('performance'+kind+'CohortNote').textContent='Current active PS · '+cohort+' · Tenure as of '+cutoffLabel+'. REG PS: 30+ calendar days; NHT: under 30 days (hire day counts as day 1).'+(unknown?' '+unknown+' with unavailable hire dates appear in ALL PS only.':'')+(future?' '+future+' hired after the cutoff appear in ALL PS only.':'')+(perDay?' Average Sales / PS-Day = units since hire within the selected month ÷ total calendar promoter-days through the cutoff. Zero-sales promoters count; WVIS uses total units ÷ total promoter-days. Click an average for the calculation.':'');
     const detailLabel=label=>label+' · '+cohort;
     const rowHtml=g=>'<tr><td>'+escapeHtml(g.label)+'</td>'+[
       performanceCell(fmt(g.headcount),g.promoters,detailLabel(g.label),null,period),
       performanceCell(performanceText(g,measure),g.promoters,detailLabel(g.label),null,period),
-      performanceCell((qty||scoreFile)&&g.average!==null?fmt(g.average,2)+(g.averageMissing?' *':''):'—',g.promoters,detailLabel(g.label),null,period),
+      performanceCell((qty||scoreFile)&&g.average!==null?fmt(g.average,2)+(g.averageMissing?' *':''):'—',g.promoters,detailLabel(g.label),null,period,g.daily),
       ...['passed','onpace','low','pending'].map(status=>performanceCell(g[status],g.promoters,detailLabel(g.label),status,period))
     ].map((value,i)=>'<td data-sort-value="'+([g.headcount,(qty||scoreFile)?performanceValue(g,measure):null,(qty||scoreFile)?g.average:null,g.passed,g.onpace,g.low,g.pending][i]??'')+'">'+value+'</td>').join('')+'</tr>';
     const body=$('performance'+kind+'Body'),table=body.closest('table');
-    performanceHeader(table,2,qty?'Running sales (units)':'Running score');performanceHeader(table,3,qty?'Average units / PS':'Average / PS');performanceHeader(table,7,qty?'Awaiting sales data':'Incomplete / Awaiting Scores');
+    performanceHeader(table,2,qty?'Running sales (units)':'Running score');performanceHeader(table,3,perDay?'Average Sales / PS-Day':qty?'Average units / PS':'Average / PS');performanceHeader(table,7,qty?'Awaiting sales data':'Incomplete / Awaiting Scores');
     body.innerHTML=groups.map(rowHtml).join('')||emptyRow(8);
     const total=groups.reduce((t,g)=>{for(const key of ['headcount','units','points','passed','onpace','low','pending'])t[key]+=g[key];t.missing||=g.missing;t.averageMissing||=g.averageMissing;t.promoters.push(...g.promoters);return t;},{label:'WVIS',headcount:0,units:0,points:0,passed:0,onpace:0,low:0,pending:0,missing:false,averageMissing:false,promoters:[]});
     total.average=total.headcount?total.promoters.reduce((sum,g)=>sum+performanceValue(g,measure),0)/total.headcount:null;
+    if(perDay){total.daily=dailyFor(total.promoters);total.average=total.daily.average;}
     const footer=body.closest('table').tFoot||body.closest('table').createTFoot();footer.removeAttribute('data-summary-auto');footer.dataset.summary='history';footer.innerHTML=rowHtml(total);
 
   });
@@ -182,6 +197,17 @@ document.addEventListener('click',event=>{
  const detail=performanceDrilldowns[Number(button.dataset.performanceDrilldown)];if(!detail)return;
  const roster=window.evisRoster?.getRoster()?.entries||[];
  const people=detail.people,measure=detail.period.measure||'points',qty=measure==='qty',target=detail.period.target??performanceTarget(measure);
+ if(detail.daily){
+  const date=day=>day==null?'Unavailable':new Date(day*86400000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
+  const headings=['Promoter','Current Store','Hire Date','Counted From','Calendar Days','Sales Units','Sales / PS-Day'];
+  const daily=detail.daily;
+  performanceDialog.innerHTML='<div class="performance-dialog-head"><h2 id="performanceDialogTitle">'+escapeHtml(detail.label+' · Average Sales / PS-Day')+'</h2><button type="button" class="secondary-btn" data-performance-close>Close</button></div><p>'+escapeHtml(monthName(selected('monthFilter')))+' · '+fmt(daily.units)+' sales units ÷ '+fmt(daily.days)+' promoter-days = '+(daily.average===null?'Unavailable':fmt(daily.average,2)+' units / PS-day')+'. Days run from hire date or month start, whichever is later, through the reporting cutoff, inclusive. Calendar days include days with zero sales.</p><div class="table-wrap"><table data-no-sort><thead><tr>'+headings.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+daily.people.map(p=>{
+   const entry=roster.find(e=>e.key===p.id||e.id===p.id),first=p.items[0]||{};
+   const values=[entry?.name||find(first,'PS Name','Promoter Name')||p.id,entry?.store||first._store||'Unassigned',date(p.hire),date(p.start),p.days===null?'Unavailable':fmt(p.days),p.dailyUnits===null?'Unavailable':fmt(p.dailyUnits),p.dailyAverage===null?'Unavailable':fmt(p.dailyAverage,2)];
+   return '<tr>'+values.map((v,i)=>'<td data-label="'+headings[i]+'">'+escapeHtml(String(v))+'</td>').join('')+'</tr>';
+  }).join('')+'</tbody></table></div>';
+  performanceDialog.querySelector('[data-performance-close]').onclick=()=>performanceDialog.close();performanceDialog.showModal();return;
+ }
  const all=salesEnriched(),filters=[['_area','areaFilter'],['_asm','asmFilter'],['_customer','customerFilter'],['_channel','channelFilter'],['_productType','productTypeFilter'],['_model','modelFilter'],['_series','seriesFilter'],['_priceRange','priceRangeFilter']];
  const matching=all.filter(r=>filters.every(([key,id])=>passes(r[key],selected(id))));
  const weeklyRows=activePerformanceRows(matching,window.evisRoster?.getRoster(),{area:selected('areaFilter'),asm:selected('asmFilter'),customer:selected('customerFilter'),channel:selected('channelFilter')},storeMap());
