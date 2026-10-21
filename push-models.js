@@ -153,7 +153,7 @@ function pushDistribution(all,roster,filters,campaign,view){
  // Keep today's ACTIVE roster and the same assignments for both snapshots. Known hires
  // after the earlier cutoff enter only the current snapshot, never its zero-unit bucket.
  const hires=performanceHireDates(all,roster.entries,cutoff);
- const members=[...pushCurrentPromoters(all,roster).values()].filter(r=>['area','asm','customer','channel'].every(k=>passes(r['_'+k],filters[k]))&&(hires.get(r._ps)?.day==null||hires.get(r._ps).day<=cutoff));
+ const members=[...pushCurrentPromoters(all,roster).values()].filter(r=>['area','asm','customer','channel'].every(k=>passes(r['_'+k],filters[k]))&&['REG PS','NHT'].includes(promoterMonthCohort(hires.get(r._ps)?.day,filters.month,cutoff)));
  const memberIds=new Set(members.map(m=>m._ps));
  const mapped=psSalesReviewData(all,roster,{area:'ALL',asm:'ALL',customer:'ALL',channel:'ALL'},storeMap()).all,sales=new Map(),previousSales=new Map();
  mapped.forEach(r=>{const d=day(r),hired=hires.get(r._reviewPs)?.day;if(!memberIds.has(r._reviewPs)||d===null||d<Math.min(start,previousStart)||d>cutoff||(hired!=null&&d<hired)||!pushSeriesMatch(r._series,campaign)||!['productType','model','series','priceRange'].every(k=>passes(r['_'+k],filters[k])))return;if(d>=start)sales.set(r._reviewPs,(sales.get(r._reviewPs)||0)+r._qty);if(d>=previousStart&&d<=previousCutoff)previousSales.set(r._reviewPs,(previousSales.get(r._reviewPs)||0)+r._qty);});
@@ -196,19 +196,21 @@ function pushSmartphoneHeadcount(all,roster,filters,view,selectedTypes,asOf=null
  const latest=new Map(),hires=new Map(),people=new Map();
  history.forEach(r=>{const id=identity(r);if(!id.key)return;const d=productivityCalendarDay(r._date);
  if(!latest.has(id.key)||d>=productivityCalendarDay(latest.get(id.key)._date))latest.set(id.key,r);
- const hire=productivityHireDay(find(r,'SR Hire Date','Hire Date'));if(hire!==null&&(!hires.has(id.key)||d>=hires.get(id.key).record))hires.set(id.key,{day:hire,record:d});});
+ const value=find(r,'SR Hire Date','Hire Date'),hire=productivityHireDay(value);if(normalize(value)&&(!hires.has(id.key)||d>=hires.get(id.key).record))hires.set(id.key,{day:hire,record:d});});
  const person=id=>{if(!people.has(id.key))people.set(id.key,{...id,units:0});return people.get(id.key);};
  const monthlyUnits=new Map();monthRows.forEach(r=>{if(r._productType!=='SMARTPHONE'||!['SP','NHT'].includes(normalize(find(r,'SR Role')).toUpperCase()))return;const id=identity(r);if(id.key&&r._qty>0)person(id);if(id.key)monthlyUnits.set(id.key,(monthlyUnits.get(id.key)||0)+r._qty);});
  people.forEach(p=>p.units=monthlyUnits.get(p.key)||0);
- entries.forEach(entry=>{const last=latest.get(entry.key)||{},role=normalize(find(last,'SR Role')).toUpperCase();if(hires.get(entry.key)?.day>cutoff||role&&!['SP','NHT'].includes(role))return;person({key:entry.key,name:entry.name,entry});});
+ entries.forEach(entry=>{const last=latest.get(entry.key)||{},role=normalize(find(last,'SR Role')).toUpperCase();if(role&&!['SP','NHT'].includes(role))return;person({key:entry.key,name:entry.name,entry});});
  const groups=new Map(),key={area:'_area',subregion:'_asm',dealer:'_customer',channel:'_channel'}[view];
  for(const p of people.values()){
  const last=latest.get(p.key)||{},e=p.entry,hire=hires.get(p.key)?.day,role=normalize(find(last,'SR Role')).toUpperCase();
- const type=!e?'RESIGNED':hire!=null?(cutoff-hire+1>=30?'REG PS':'NHT'):role==='NHT'?'NHT':role==='SP'?'REG PS':'Unknown';
+ const cohort=hires.has(p.key)&&hire===null?'unknown':promoterMonthCohort(hire,filters.month,cutoff);
+ if(cohort==='future')continue;
+ const type=cohort==='unknown'?'Unknown':!e?'RESIGNED':cohort;
  Object.assign(p,{_ps:p.key,_name:p.name,_store:e?.store||last._store||'Unassigned',_area:e?.area||last._area||'Unassigned',_asm:e?.asm||last._asm||'Unassigned',_customer:e?.customer||last._customer||'Unassigned',_channel:last._channel||'Unassigned',type});
  if(e)Object.assign(p,assignments.get(e.key));
  if(!['area','asm','customer','channel'].every(k=>passes(p['_'+k],filters[k])))continue;
- if(type==='Unknown'){result.unknown++;if(selectedTypes.size!==3)continue;}else if(!selectedTypes.has(type))continue;
+ if(type==='Unknown'){result.unknown++;continue;}if(!selectedTypes.has(type))continue;
  p.units=Math.max(0,p.units);p.bucket=p.units===0?0:p.units<=10?1:p.units<=15?2:p.units<=20?3:p.units<=25?4:p.units<=30?5:6;
  const label=p[key];if(!groups.has(label))groups.set(label,blank(label));
  for(const g of [groups.get(label),result.total]){g.people.push(p);g.headcount++;g.counts[p.bucket]++;}
@@ -271,7 +273,7 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
     $('pushBody'+i).innerHTML=dist.groups.map(distributionRow).join('')||emptyRow(7);$('pushTotal'+i).innerHTML=distributionRow(dist.total);
     $('pushPeriod'+i).textContent=Number.isFinite(dist.cutoff)?'MTD '+date(dist.start)+'–'+date(dist.cutoff)+' · Prev = MTD '+date(dist.previousStart)+'–'+date(dist.previousCutoff)+' · Current PS (% share), then Prev PS and IR.':'No sales dates available in the selected month.';
     if(i===0){
-     const note='Green: fewer at 0 sales or more at 15+; red: the reverse. Changes in the 1–3, 4–7, and 8–14 groups are neutral; ±1% is blue/steady. Both snapshots use the current ACTIVE roster and the same assignments. Known hires since the earlier cutoff: '+dist.total.newHires+' (included now, excluded before hire; IR includes this headcount change).'+(dist.total.unknownHire?' Hire date unavailable: '+dist.total.unknownHire+'; included in both snapshots.':'')+(!dist.available?' IR unavailable until complete source date coverage is available for both MTD periods.':'');
+     const note='Green: fewer at 0 sales or more at 15+; red: the reverse. Changes in the 1–3, 4–7, and 8–14 groups are neutral; ±1% is blue/steady. Both snapshots use the current ACTIVE roster and the same assignments. Known hires since the earlier cutoff: '+dist.total.newHires+' (included now, excluded before hire; IR includes this headcount change).'+' Missing or invalid hire dates and hires after selected month-end are excluded.'+(!dist.available?' IR unavailable until complete source date coverage is available for both MTD periods.':'');
      warnings.splice(0,warnings.length,...(!roster?['Waiting for the active promoter list.']:[]),note);
     }
     return;
@@ -300,7 +302,7 @@ function pushShortfall(groups){return groups.every(g=>g.target!==null&&g.sales!=
    return '<td class="push-distribution-cell" data-sort-value="'+people.length+'"><button type="button" class="push-distribution-drilldown" data-push-distribution="'+index+'" aria-haspopup="dialog"><span class="push-distribution-now">'+current+'</span><span class="push-distribution-previous">Prev '+(snapshots.available?fmt(prior):'N/A')+' · <span class="model-rate '+rate.kind+'">'+rate.symbol+' '+rate.text+'</span></span></button></td>';
   }).join('')+'</tr>';
   $('pushHeadcountBody').innerHTML=hc.groups.map(g=>hcRow(g)).join('')||emptyRow(9);$('pushHeadcountTotal').innerHTML=hcRow(hc.total,true);
-  $('pushHeadcountNote').textContent=monthName(filters.month)+' · MTD '+date(snapshots.start)+'–'+date(snapshots.cutoff)+' · Prev = MTD '+date(snapshots.previousStart)+'–'+date(snapshots.previousCutoff)+'. '+(!snapshots.available?'Previous comparison unavailable: missing source dates. ':'')+'All smartphone models. Month and geography/dealer/customer-type filters apply; product, model, series and price-range filters do not narrow this table. Selected buttons include those groups. REG PS: 30+ days at the month’s uploaded cutoff; NHT: under 30 days (sales role used when hire date is unavailable). RESIGNED: monthly sellers absent from the current active list, not confirmed historical resignation status. Current active zero sellers are included; known hires after the cutoff are excluded.'+(!roster?' Waiting for active promoter list.':'')+(!Number.isFinite(hc.cutoff)?' No sales data for this month.':'')+(hc.unknown?' '+hc.unknown+' active promoters have unknown type; included only when all three groups are selected.':'');
+  $('pushHeadcountNote').textContent=monthName(filters.month)+' · MTD '+date(snapshots.start)+'–'+date(snapshots.cutoff)+' · Prev = MTD '+date(snapshots.previousStart)+'–'+date(snapshots.previousCutoff)+'. '+(!snapshots.available?'Previous comparison unavailable: missing source dates. ':'')+'All smartphone models. Month and geography/dealer/customer-type filters apply; product, model, series and price-range filters do not narrow this table. Selected buttons include those groups. REG PS: hired before the selected month; NHT: hired within the selected month. The raw sales role does not override this classification. RESIGNED: monthly sellers absent from the current active list, not confirmed historical resignation status. Eligible current active zero sellers are included. Missing or invalid hire dates and hires after selected month-end are excluded.'+(!roster?' Waiting for active promoter list.':'')+(!Number.isFinite(hc.cutoff)?' No sales data for this month.':'')+(hc.unknown?' '+hc.unknown+' promoters are excluded because their hire dates are missing or invalid.':'');
   $('pushNotice').textContent=warnings.join(' ');
  }
  section.addEventListener('click',e=>{const b=e.target.closest('[data-push-headcount-type]');if(!b)return;const type=b.dataset.pushHeadcountType;headcountTypes.has(type)?headcountTypes.delete(type):headcountTypes.add(type);b.setAttribute('aria-pressed',String(headcountTypes.has(type)));resetPushSort();renderPushModels();});

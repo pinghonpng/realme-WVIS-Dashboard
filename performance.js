@@ -38,10 +38,10 @@ let performanceLastRows=[];
 function performanceCohortData(all,roster,month){
  const cutoff=all.filter(r=>modelMonthKey(r._date)===month).reduce((d,r)=>Math.max(d,productivityCalendarDay(r._date)??-Infinity),-Infinity);
  const hires=performanceHireDates(all,roster,cutoff),types=new Map();
- for(const entry of roster){const hire=hires.get(entry.key)?.day;types.set(entry.key,hire==null?'unknown':hire>cutoff?'future':cutoff-hire+1>=30?'REG PS':'NHT');}
+ for(const entry of roster){const record=hires.get(entry.key);types.set(entry.key,record&&record.day===null?'unknown':promoterMonthCohort(record?.day,month,cutoff));}
  return {cutoff,types,hires};
 }
-function performanceCohortRows(rows,cohort,types){return cohort==='ALL PS'?rows:rows.filter(r=>types.get(r._ps)===cohort);}
+function performanceCohortRows(rows,cohort,types){return rows.filter(r=>{const type=types.get(r._ps);return cohort==='ALL PS'?type==='REG PS'||type==='NHT':type===cohort;});}
 function performanceDailyAverage(promoters,hires,month,cutoff){
  const [year,m]=month.split('-').map(Number),monthStart=Date.UTC(year,m-1,1)/86400000;
  const people=promoters.map(g=>{
@@ -51,7 +51,7 @@ function performanceDailyAverage(promoters,hires,month,cutoff){
   return {...g,hire,start,days,dailyUnits:units,dailyAverage:days===null?null:units/days};
  });
  const days=people.reduce((sum,p)=>sum+(p.days||0),0),units=people.reduce((sum,p)=>sum+(p.dailyUnits||0),0),missing=people.some(p=>p.days===null);
- return {people,days,units,average:!missing&&days>0?units/days:null};
+ return {people,days,units,missingCount:people.filter(p=>p.days===null).length,average:!missing&&days>0?units/days:null};
 }
 const performanceLabels={passed:'Target reached',onpace:'On-Pace',low:'Low performance',pending:'Incomplete / Awaiting scores'};
 function performanceCell(value,promoters,label,status,period,daily=null){
@@ -67,7 +67,7 @@ function renderTerritoryPerformance(rows){
   const all=salesEnriched(),period=performancePeriod(all,selected('monthFilter'),measure);
   syncPerformanceControls();
   const cohortData=performanceCohortData(all,window.evisRoster?.getRoster()?.entries||[],selected('monthFilter'));
-  const ids=new Set(rows.map(r=>r._ps)),unknown=[...ids].filter(id=>!cohortData.types.has(id)||cohortData.types.get(id)==='unknown').length,future=[...ids].filter(id=>cohortData.types.get(id)==='future').length;
+  rows=performanceCohortRows(rows,'ALL PS',cohortData.types);
   ['area','subregion'].forEach(kind=>{
     const cohort=performanceCohorts[kind],groups=territoryPerformance(performanceCohortRows(rows,cohort,cohortData.types),kind==='area'?'_area':'_asm',period);
     const perDay=qty&&cohort==='NHT';
@@ -75,7 +75,7 @@ function renderTerritoryPerformance(rows){
     if(perDay)groups.forEach(g=>{g.daily=dailyFor(g.promoters);g.average=g.daily.average;});
     document.querySelectorAll('[data-performance-kind="'+kind+'"]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.performanceCohort===cohort)));
     const cutoffLabel=Number.isFinite(cohortData.cutoff)?new Date(cohortData.cutoff*86400000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}):'date unavailable';
-    $('performance'+kind+'CohortNote').textContent='Current active PS · '+cohort+' · Tenure as of '+cutoffLabel+'. REG PS: 30+ calendar days; NHT: under 30 days (hire day counts as day 1).'+(unknown?' '+unknown+' with unavailable hire dates appear in ALL PS only.':'')+(future?' '+future+' hired after the cutoff appear in ALL PS only.':'')+(perDay?' Average Sales / PS-Day = units since hire within the selected month ÷ total calendar promoter-days through the cutoff. Zero-sales promoters count; WVIS uses total units ÷ total promoter-days. Click an average for the calculation.':'');
+    $('performance'+kind+'CohortNote').textContent='Current active PS · '+cohort+' · Reporting cutoff: '+cutoffLabel+'. NHT: hired within the selected month. REG PS: hired before the selected month. Missing or invalid hire dates and hires after month-end are excluded from all headcounts.'+(perDay?' Average Sales / PS-Day = units since hire within the selected month ÷ total calendar promoter-days through the cutoff (hire day counts as day 1). Zero-sales promoters count. A group’s average is unavailable until every included promoter has at least one elapsed day. Click an average for details.':'');
     const detailLabel=label=>label+' · '+cohort;
     const rowHtml=g=>'<tr><td>'+escapeHtml(g.label)+'</td>'+[
       performanceCell(fmt(g.headcount),g.promoters,detailLabel(g.label),null,period),
@@ -201,7 +201,7 @@ document.addEventListener('click',event=>{
   const date=day=>day==null?'Unavailable':new Date(day*86400000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
   const headings=['Promoter','Current Store','Hire Date','Counted From','Calendar Days','Sales Units','Sales / PS-Day'];
   const daily=detail.daily;
-  performanceDialog.innerHTML='<div class="performance-dialog-head"><h2 id="performanceDialogTitle">'+escapeHtml(detail.label+' · Average Sales / PS-Day')+'</h2><button type="button" class="secondary-btn" data-performance-close>Close</button></div><p>'+escapeHtml(monthName(selected('monthFilter')))+' · '+fmt(daily.units)+' sales units ÷ '+fmt(daily.days)+' promoter-days = '+(daily.average===null?'Unavailable':fmt(daily.average,2)+' units / PS-day')+'. Days run from hire date or month start, whichever is later, through the reporting cutoff, inclusive. Calendar days include days with zero sales.</p><div class="table-wrap"><table data-no-sort><thead><tr>'+headings.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+daily.people.map(p=>{
+  performanceDialog.innerHTML='<div class="performance-dialog-head"><h2 id="performanceDialogTitle">'+escapeHtml(detail.label+' · Average Sales / PS-Day')+'</h2><button type="button" class="secondary-btn" data-performance-close>Close</button></div><p>'+escapeHtml(monthName(selected('monthFilter')))+' · '+fmt(daily.units)+' sales units ÷ '+fmt(daily.days)+' promoter-days = '+(daily.average===null?'Unavailable':fmt(daily.average,2)+' units / PS-day')+'. Days run from hire date or month start, whichever is later, through the reporting cutoff, inclusive. Calendar days include days with zero sales.'+(daily.missingCount?' '+daily.missingCount+' NHTs have no elapsed days at this cutoff; their rate and the group average are unavailable. Listed totals cover elapsed days only.':'')+'</p><div class="table-wrap"><table data-no-sort><thead><tr>'+headings.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+daily.people.map(p=>{
    const entry=roster.find(e=>e.key===p.id||e.id===p.id),first=p.items[0]||{};
    const values=[entry?.name||find(first,'PS Name','Promoter Name')||p.id,entry?.store||first._store||'Unassigned',date(p.hire),date(p.start),p.days===null?'Unavailable':fmt(p.days),p.dailyUnits===null?'Unavailable':fmt(p.dailyUnits),p.dailyAverage===null?'Unavailable':fmt(p.dailyAverage,2)];
    return '<tr>'+values.map((v,i)=>'<td data-label="'+headings[i]+'">'+escapeHtml(String(v))+'</td>').join('')+'</tr>';
