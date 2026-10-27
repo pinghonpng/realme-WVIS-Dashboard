@@ -20,12 +20,12 @@ function csv(text){
  if(cell||row.length){row.push(cell);rows.push(row);}
  return rows;
 }
-function source(text,required,label){
+function source(text,required,label,optional=[]){
  const rows=csv(text),headers=rows.shift()||[];
  const columns=required.map(name=>headers.findIndex(h=>key(h)===key(name)));
  if(columns.some(i=>i<0))throw error(label+' has missing or changed column headers.');
  // Always select the first/main header block, not repeated helper columns.
- return rows.map(row=>Object.fromEntries(required.map((name,i)=>[name,clean(row[columns[i]])])));
+ return rows.map(row=>Object.fromEntries([...required.map((name,i)=>[name,clean(row[columns[i]])]),...optional.map(name=>[name,clean(row[headers.findIndex(h=>key(h)===key(name))])]) ]));
 }
 function cents(value,label){
  if(!clean(value))return null;
@@ -61,10 +61,10 @@ function dealerDirectory(texts){
  return {short,legal};
 }
 function buildReport(input,checkedAt=new Date().toISOString()){
- const issued=source(input.issued,['Customer Name','CM Owner Name','CM Doc No','CM Amount','Aging','CM Remarks','CM UPDATED'],'INPUT ISSUED');
+ const issued=source(input.issued,['Customer Name','CM Owner Name','CM Doc No','CM Amount','Aging','CM Remarks','CM UPDATED'],'INPUT ISSUED',['CM From']);
  const used=source(input.used,['CM Doc No','Amount Used','CM UPDATED','REMARKS','SO Usage','UsedDate'],'INPUT USED');
- const available=source(input.available,['Customer Name','CM Doc No','AmountLeft','CM UPDATED','UPDATED AGING DAYS'],'INPUT AVAILABLE');
- const directory=dealerDirectory(input.dealers),usage=new Map(),balances=new Map(),updatedAging=new Map(),transactions=[];
+ const available=source(input.available,['Customer Name','CM Doc No','AmountLeft','CM UPDATED','UPDATED AGING DAYS'],'INPUT AVAILABLE',['COMPANY SALES']);
+ const directory=dealerDirectory(input.dealers),usage=new Map(),balances=new Map(),updatedAging=new Map(),availableCompanies=new Map(),transactions=[];
  // The sheet also records UNUSED balances. Only USED rows are actual usage.
  for(const r of used){
   const id=key(r['CM Doc No']);if(!id||key(r.REMARKS)!=='USED')continue;
@@ -72,7 +72,7 @@ function buildReport(input,checkedAt=new Date().toISOString()){
   usage.set(id,add(usage.has(id)?usage.get(id):0,usedCents));
   transactions.push({cmId:id,cmNo:r['CM Doc No'],soId:key(r['SO Usage']),soNo:r['SO Usage'],usedDate:day(r.UsedDate)||null,usedCents});
  }
- for(const r of available){const id=key(r['CM Doc No']);if(!id)continue;if(balances.has(id))throw error('Duplicate CM number in INPUT AVAILABLE: '+id);balances.set(id,cents(r.AmountLeft,'INPUT AVAILABLE / '+id));updatedAging.set(id,r['UPDATED AGING DAYS']);}
+ for(const r of available){const id=key(r['CM Doc No']);if(!id)continue;if(balances.has(id))throw error('Duplicate CM number in INPUT AVAILABLE: '+id);balances.set(id,cents(r.AmountLeft,'INPUT AVAILABLE / '+id));updatedAging.set(id,r['UPDATED AGING DAYS']);availableCompanies.set(id,key(r['COMPANY SALES'])||null);}
  const rows=[],dealers=new Map(),seen=new Set();let excludedNka=0;
  for(const r of issued){
   const id=key(r['CM Doc No']);if(!id)continue;
@@ -91,7 +91,9 @@ function buildReport(input,checkedAt=new Date().toISOString()){
   const aging=/^\d+$/.test(agingValue)?Number(agingValue):null;
   if(!dealers.has(dealerId))dealers.set(dealerId,{id:dealerId,name:customer,classified:!!match});
   else if(!match)dealers.get(dealerId).classified=false;
-  rows.push({dealerId,owner:r['CM Owner Name'],arNo:r['CM Doc No'],description:r['CM Remarks'],aging,
+  const company=key(r['CM From'])||null,availableCompany=availableCompanies.get(id)||null;
+  rows.push({dealerId,owner:r['CM Owner Name'],arNo:r['CM Doc No'],description:r['CM Remarks'],aging,company,availableCompany,
+   companyMismatch:!!(company&&availableCompany&&company!==availableCompany),
    status:remainingCents===0&&availableCents===0?'CONSUMED':'',issuedCents,usedCents,remainingCents,availableCents,differenceCents,
    // INPUT AVAILABLE membership determines this view, not calculated Remaining.
    availableListed:balances.has(id),isAvailable:balances.has(id),remarks:remainingCents>0&&!balances.has(id)?'EXPIRED':''});
