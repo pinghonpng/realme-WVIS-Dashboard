@@ -182,8 +182,9 @@ function incentiveSellerRoster(all,month){
  }
  return {entries:[...latest].map(([key,r])=>({key,id:rosterCode(r._ps),name:normalize(find(r,'PS Name','Promoter Name'))||key,area:normalize(r._area),asm:normalize(r._asm),store:normalize(r._store),sid:normalize(r._sid),storeType:normalize(find(r,'Store Type')),customer:normalize(r._customer)}))};
 }
-function incentiveSalesReport(rows,month){
- const roster=incentiveSellerRoster(rows,month),report=promoterIncentiveReport(rows,roster,month);
+function incentiveSalesReport(rows,month,storeTypes={}){
+ const roster=incentiveSellerRoster(rows,month);for(const e of roster.entries)if(!promoterIncentiveFormat(e.storeType)&&Object.hasOwn(storeTypes,e.key))e.storeType=storeTypes[e.key];
+ const report=promoterIncentiveReport(rows,roster,month);
  report.basis='sales-sellers';
  report.asm=asmIncentiveReport(rows.filter(r=>['SP','NHT','FL'].includes(normalize(find(r,'SR Role')).toUpperCase())),roster,month);
  report.asm.basis='sales-sellers';
@@ -196,7 +197,7 @@ function incentiveArchiveReport(input){
  const catalog=new Map(input.catalog.map(m=>[normalize(m.model).replace(/\s+/g,' ').toLowerCase(),m]));
  const rows=input.sales.map(r=>{const m=catalog.get(normalize(r._model).replace(/\s+/g,' ').toLowerCase()),rate=m?.points??null;
   return {...r,_date:new Date(r._date+'T12:00:00Z'),_series:m?.series||'Unmapped series',_scoreRate:rate,_points:rate===null?null:r._qty*rate};});
- return input.basis==='sales-sellers'?incentiveSalesReport(rows,input.month):promoterIncentiveReport(rows,input.roster,input.month);
+ return input.basis==='sales-sellers'?incentiveSalesReport(rows,input.month,input.storeTypes):promoterIncentiveReport(rows,input.roster,input.month);
 }
 function incentiveReportJSON(report){return JSON.parse(JSON.stringify(report,(key,value)=>value instanceof Set?[...value]:value));}
 function incentiveReportRestore(report){return {...report,people:report.people.map(p=>({...p,issues:new Set(p.issues)}))};}

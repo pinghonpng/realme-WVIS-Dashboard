@@ -13,7 +13,7 @@
   if(!pending.has(month))pending.set(month,request(endpoint+'&month='+encodeURIComponent(month)).then(a=>archives.set(month,a)).catch(e=>pending.set(month,e)).finally(notify));
   const error=pending.get(month);return {blocked:true,message:error instanceof Error?'Locked month unavailable: '+error.message:'Loading locked computation…'};
  }
- function inputs(month,all,roster,label,basis){
+ function inputs(month,all,roster,label,basis,storeTypes){
   const source=window.evisIncentiveSources?.();if(!source?.ready)throw new Error('Wait until sales and model scores finish refreshing successfully.');
   if(!roster?.entries?.length)throw new Error('An active roster is required before locking.');
   const sales=all.filter(r=>r._date&&!isNaN(r._date)&&modelMonthKey(r._date)<=month).map(r=>{
@@ -21,7 +21,7 @@
    for(const key of ['_ps','_model','_modelCode','_sid','_store','_area','_asm','_customer'])row[key]=normalize(r[key]);
    for(const [key,names] of [['PS Name',['PS Name','Promoter Name']],['SR Role',['SR Role']],['SR Hire Date',['SR Hire Date','Hire Date']],['Store Type',['Store Type']]])row[key]=normalize(find(r,...names));return row;
   });
-  return {...(basis?{basis}:{}),month,sales,catalog:[...scoreCatalog.values()],roster:{entries:roster.entries},rosterLabel:label,source};
+  return {...(basis?{basis,storeTypes:storeTypes||{}}:{}),month,sales,catalog:[...scoreCatalog.values()],roster:{entries:roster.entries},rosterLabel:label,source};
  }
  function panel(host,month,status,report,all){
   host.replaceChildren();host.className='pi-lock-panel';
@@ -35,9 +35,10 @@
   if(month==='2026-10'){const salesButton=document.createElement('button');salesButton.className='secondary-btn';salesButton.textContent='Review all October sellers (PS + ASM)';salesButton.disabled=saving;salesButton.onclick=()=>{overrides.set(month,{roster:incentiveSellerRoster(all,month),label:'October sales-based membership',basis:'sales-sellers'});notify();};host.append(salesButton);}
   const label=document.createElement('label');label.textContent='Use saved active roster (CSV) ';const file=document.createElement('input');file.type='file';file.accept='.csv';file.setAttribute('aria-label','Saved active roster for incentive lock');file.disabled=saving;label.append(file);host.append(label);
   file.onchange=async()=>{const f=file.files[0];if(!f)return;try{const roster=rosterParse(parseCSV(await f.text()));overrides.set(month,{roster,label:f.name});notify();}catch(e){note.textContent=e.message;}};
+  if(override?.basis==='sales-sellers'){for(const p of report.people.filter(p=>p.issues.has('Store type needs review')||override.storeTypes?.[p.key])){const row=document.createElement('label');row.textContent='Confirm October store type: '+p.name+' · '+p.store+' ';const select=document.createElement('select');select.setAttribute('aria-label','October store type for '+p.name);for(const type of ['','Multibrand','Exclusive','Concept','Kiosk']){const option=document.createElement('option');option.value=type;option.textContent=type||'Choose confirmed store type';select.append(option);}select.value=override.storeTypes?.[p.key]||'';select.disabled=saving;select.onchange=()=>{override.storeTypes={...override.storeTypes};if(select.value)override.storeTypes[p.key]=select.value;else delete override.storeTypes[p.key];notify();};row.append(select);host.append(row);}}
   const button=document.createElement('button');button.className='secondary-btn';button.textContent=saving?'Saving locked computation…':override?.basis==='sales-sellers'?'Lock October PS and ASM':'Lock reviewed month';button.disabled=saving||!window.evisIncentiveSources?.().ready||!override||promoterIncentiveTotals(report.people).pending>0;host.append(button);
   button.onclick=async()=>{if(saving)return;saving=true;button.disabled=true;file.disabled=true;note.textContent='Saving and verifying the full month…';try{
-   const input=inputs(month,all,override.roster,override.label,override.basis),frozen=incentiveReportJSON(incentiveArchiveReport(input));input.expectedReportHash=await hash(frozen);
+   const input=inputs(month,all,override.roster,override.label,override.basis,override.storeTypes),frozen=incentiveReportJSON(incentiveArchiveReport(input));input.expectedReportHash=await hash(frozen);
    // Never save a different result from the one just reviewed in the table.
    const reviewed=incentiveReportJSON(report);delete reviewed.cutoff;const checked=incentiveReportJSON(frozen);delete checked.cutoff;if(reviewed.asm)delete reviewed.asm.cutoff;if(checked.asm)delete checked.asm.cutoff;
    if(await hash(reviewed)!==await hash(checked))throw new Error('The source changed during review. Review the refreshed computation and try again.');

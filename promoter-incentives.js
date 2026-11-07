@@ -108,7 +108,7 @@ function promoterIncentiveBreakdown(people,policy,component='total',group='serie
   if([...input.options].map(o=>o.value).join()!==months.join())input.innerHTML=months.map(m=>'<option value="'+m+'">'+html(monthName(m))+'</option>').join('');input.value=months.includes(old)?old:months[0]||'';
   const lockState=locks?.state(input.value)||{blocked:true,message:'Checking locked computations…'};
   if(lockState.blocked){report={people:[]};visible=[];if(popup.open)popup.close();$('piBody').innerHTML=emptyRow(columns.length);$('piTotal').innerHTML='';$('piKpis').innerHTML='';$('piSchemeBanner').innerHTML='';$('piPeriod').textContent='';$('piNotice').textContent='';locks?.panel($('piLock'),input.value,lockState,report,all);return;}
-  report=lockState.locked?lockState.report:lockState.roster?.basis==='sales-sellers'?incentiveSalesReport(all,input.value):promoterIncentiveReport(all,lockState.roster?.roster||window.evisRoster?.getRoster(),input.value);
+  report=lockState.locked?lockState.report:lockState.roster?.basis==='sales-sellers'?incentiveSalesReport(all,input.value,lockState.roster.storeTypes):promoterIncentiveReport(all,lockState.roster?.roster||window.evisRoster?.getRoster(),input.value);
   $('piStatus').disabled=report.basis==='sales-sellers';if(report.basis==='sales-sellers')$('piStatus').value='all';
   locks.panel($('piLock'),input.value,lockState,report,all);renderSchemeBanner(input.value);
   section.querySelector('.pi-rules').hidden=lockState.locked||input.value!=='2026-09';
