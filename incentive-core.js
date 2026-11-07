@@ -125,16 +125,82 @@ function promoterIncentiveTotals(people){
  return total;
 }
 
+function asmTrackModel(target,r,type){
+ const name=normalize(r._model||r._modelCode)||'Unmapped model',series=normalize(r._series)||'Unmapped series',rate=r._scoreRate??null;
+ const key=JSON.stringify([name,series,rate,type]);
+ if(!target.models.has(key))target.models.set(key,{name,series,rate,type,units:0,score:0,missing:false});
+ const m=target.models.get(key);m.units+=Number(r._qty)||0;m.score+=r._points??0;m.missing||=r._points==null;
+}
+function promoterLatestMonth(all){return all.reduce((latest,row)=>{const month=modelMonthKey(row._date);return month&&month>latest?month:latest;},'');}
+// A blank date is NHT only in the latest available month. Invalid recorded dates remain unknown.
+function promoterMonthCohort(hire,month,cutoff,latestMonth='',hasHireRecord=false){
+ const start=productivityHireDay(month+'-01');
+ if(start===null)return 'unknown';
+ if(hire==null&&!hasHireRecord)return latestMonth&&month===latestMonth?'NHT':'unknown';
+ if(!Number.isFinite(hire))return 'unknown';
+ const [year,m]=month.split('-').map(Number),end=Math.floor(Date.UTC(year,m,0)/86400000);
+ if(hire>end)return 'future';
+ return hire<start?'REG PS':'NHT';
+}
+function asmIncentiveReport(all,roster,month){
+ const period=all.filter(r=>modelMonthKey(r._date)===month),cutoff=period.reduce((d,r)=>Math.max(d,+r._date),-Infinity);
+ const byId=new Map((roster?.entries||[]).filter(e=>e.id).map(e=>[e.id,e])),byName=new Map((roster?.entries||[]).map(e=>[rosterName(e.name),e]));
+ const match=r=>{const id=rosterCode(r._ps),named=byName.get(rosterName(find(r,'PS Name','Promoter Name')));return byId.get(id)||((!id||!named?.id)&&named)||null;};
+ const role=r=>normalize(find(r,'SR Role')).toUpperCase(),latest=new Map(),hires=new Map(),groups=new Map();
+ const territory=r=>JSON.stringify([r._area||'Unassigned',r._asm||'Unassigned']);
+ const group=r=>{const key=territory(r);if(!groups.has(key))groups.set(key,{key,area:r._area||'Unassigned',subregion:r._asm||'Unassigned',headcount:0,baselineScore:0,promoterUnits:0,promoterScore:0,flUnits:0,flScore:0,missing:!roster,people:new Map()});return groups.get(key);};
+ const person=(g,key,name,type,active)=>{const k=JSON.stringify([key,type]);if(!g.people.has(k))g.people.set(k,{name,type,active,units:0,score:0,deduction:0,missing:false,store:'',stores:new Set(),models:new Map()});return g.people.get(k);};
+ for(const r of all){if(!r._date||isNaN(r._date)||+r._date>cutoff)continue;const e=match(r);if(e){if(!latest.has(e.key)||r._date>=latest.get(e.key)._date)latest.set(e.key,r);const hireValue=find(r,'SR Hire Date','Hire Date'),hire=productivityHireDay(hireValue);if(normalize(hireValue)&&(!hires.has(e.key)||r._date>=hires.get(e.key).record))hires.set(e.key,{day:hire,record:r._date});}}
+ for(const r of period){
+  const rawRole=role(r),type=['SP','NHT'].includes(rawRole)?'Promoter':rawRole==='FL'?'FL':rawRole||'Unknown role',e=match(r),g=group(r);
+  const name=normalize(find(r,'PS Name','Promoter Name'))||normalize(r._ps)||'Unassigned',key=e?.key||rosterCode(r._ps)||rosterName(name);
+  const p=person(g,key,name,type,!!e);asmTrackModel(p,r,type);p.units+=r._qty;p.score+=r._points??0;if(type==='Promoter')p.store=normalize(e?.store);if(type==='FL'){const store=normalize(r._store||find(r,'Store Name','Store','Outlet','Shop'));if(store)p.stores.add(store);}
+  if(type==='Promoter'){g.promoterUnits+=r._qty;g.promoterScore+=r._points??0;}
+  if(type==='FL'){g.flUnits+=r._qty;g.flScore+=r._points??0;}
+  if(!rawRole||(['Promoter','FL'].includes(type)&&r._points==null)){p.missing=true;g.missing=true;}
+ }
+ // Charge existing active promoters once; unknown hire dates, hires in the selected month and resigned PS are exempt.
+ const cutoffDay=Number.isFinite(cutoff)?productivityCalendarDay(new Date(cutoff)):null,latestMonth=promoterLatestMonth(all);
+ for(const e of roster?.entries||[]){const r=latest.get(e.key);if(r&&role(r)&&!['SP','NHT'].includes(role(r)))continue;
+  const g=group({_area:r?._area||e.area,_asm:r?._asm||e.asm}),p=person(g,e.key,e.name,'Promoter',true);const cohort=promoterMonthCohort(hires.get(e.key)?.day,month,cutoffDay,latestMonth,hires.has(e.key));g.headcount++;p.deduction=Number.isFinite(hires.get(e.key)?.day)&&hires.get(e.key).day<productivityHireDay(month+'-01')?100:0;p.store=normalize(e.store);
+ }
+ for(const g of groups.values()){
+  g.baselineScore=[...g.people.values()].reduce((sum,p)=>sum+p.deduction,0);g.promoterContribution=(g.promoterScore-g.baselineScore)*4;g.flContribution=g.flScore*10;g.incentive=g.promoterContribution+g.flContribution;
+  g.people=[...g.people.values()].map(p=>({...p,models:[...p.models.values()],promoterContribution:p.type==='Promoter'?(p.score-p.deduction)*4:0,flContribution:p.type==='FL'?p.score*10:0,incentive:p.type==='Promoter'?(p.score-p.deduction)*4:p.type==='FL'?p.score*10:0})).sort((a,b)=>a.name.localeCompare(b.name));
+ }
+ return {groups:[...groups.values()].sort((a,b)=>a.area.localeCompare(b.area)||a.subregion.localeCompare(b.subregion)),cutoff,unknown:period.filter(r=>!role(r)).length};
+}
+function asmIncentiveTotal(groups){return groups.reduce((t,g)=>{for(const k of ['headcount','baselineScore','promoterUnits','promoterScore','flUnits','flScore','promoterContribution','flContribution','incentive'])t[k]+=g[k];t.missing||=g.missing;return t;},{area:'WVIS',subregion:'',headcount:0,baselineScore:0,promoterUnits:0,promoterScore:0,flUnits:0,flScore:0,promoterContribution:0,flContribution:0,incentive:0,missing:false});}
+
+// Sales-based month closure: membership and assignments come from that month's sales,
+// never from the current HR roster. This does not assert current employment status.
+function incentiveSellerRoster(all,month){
+ const latest=new Map();
+ for(const r of all){if(modelMonthKey(r._date)!==month||!['SP','NHT'].includes(normalize(find(r,'SR Role')).toUpperCase()))continue;
+  const id=rosterCode(r._ps),name=normalize(find(r,'PS Name','Promoter Name')),key=id||(name?'name:'+rosterName(name):'');if(!key)continue;
+  if(!latest.has(key)||r._date>=latest.get(key)._date)latest.set(key,r);
+ }
+ return {entries:[...latest].map(([key,r])=>({key,id:rosterCode(r._ps),name:normalize(find(r,'PS Name','Promoter Name'))||key,area:normalize(r._area),asm:normalize(r._asm),store:normalize(r._store),sid:normalize(r._sid),storeType:normalize(find(r,'Store Type')),customer:normalize(r._customer)}))};
+}
+function incentiveSalesReport(rows,month){
+ const roster=incentiveSellerRoster(rows,month),report=promoterIncentiveReport(rows,roster,month);
+ report.basis='sales-sellers';
+ report.asm=asmIncentiveReport(rows.filter(r=>['SP','NHT','FL'].includes(normalize(find(r,'SR Role')).toUpperCase())),roster,month);
+ report.asm.basis='sales-sellers';
+ report.asm.policy={promoterRate:4,flRate:10,baseline:100,baselineRule:'October sellers hired before October 1; October hires and missing dates exempt. Resignation status is not used.'};
+ return report;
+}
+
 // Archive input is deliberately independent of live filters and future catalogs.
 function incentiveArchiveReport(input){
  const catalog=new Map(input.catalog.map(m=>[normalize(m.model).replace(/\s+/g,' ').toLowerCase(),m]));
  const rows=input.sales.map(r=>{const m=catalog.get(normalize(r._model).replace(/\s+/g,' ').toLowerCase()),rate=m?.points??null;
   return {...r,_date:new Date(r._date+'T12:00:00Z'),_series:m?.series||'Unmapped series',_scoreRate:rate,_points:rate===null?null:r._qty*rate};});
- return promoterIncentiveReport(rows,input.roster,input.month);
+ return input.basis==='sales-sellers'?incentiveSalesReport(rows,input.month):promoterIncentiveReport(rows,input.roster,input.month);
 }
 function incentiveReportJSON(report){return JSON.parse(JSON.stringify(report,(key,value)=>value instanceof Set?[...value]:value));}
 function incentiveReportRestore(report){return {...report,people:report.people.map(p=>({...p,issues:new Set(p.issues)}))};}
 
-const api={incentiveArchiveReport,incentiveReportJSON,incentiveReportRestore,PROMOTER_INCENTIVE_POLICIES,promoterIncentiveFormat,promoterIncentiveBonusModel,promoterIncentiveAmounts,promoterIncentiveReport,promoterIncentiveTotals};
+const api={incentiveSellerRoster,incentiveSalesReport,incentiveArchiveReport,incentiveReportJSON,incentiveReportRestore,PROMOTER_INCENTIVE_POLICIES,promoterIncentiveFormat,promoterIncentiveBonusModel,promoterIncentiveAmounts,promoterIncentiveReport,promoterIncentiveTotals};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else Object.assign(window,api);
 })();

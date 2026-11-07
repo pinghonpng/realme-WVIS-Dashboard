@@ -32,6 +32,8 @@ async function readLock(month){
  if(a.schema!==1||a.month!==month||hash({inputs:a.inputs,report:a.report})!==a.hash)fail(502,'Locked computation failed validation.');return publicView(a);
 }
 function validateInput(input,now=new Date()){
+ if(input?.basis!==undefined&&input.basis!=='sales-sellers')fail(400,'Invalid archive basis.');
+ if(input?.basis==='sales-sellers'&&input.month!=='2026-10')fail(400,'Sales-based closure is approved for October 2026 only.');
  if(!input||!validMonth(input.month)||!PROMOTER_INCENTIVE_POLICIES[input.month])fail(400,'This month needs its own approved incentive scheme.');
  const currentMonth=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit'}).formatToParts(now),part=t=>currentMonth.find(p=>p.type===t).value;
  if(input.month>=part('year')+'-'+part('month'))fail(400,'Only completed months can be locked.');
@@ -44,6 +46,7 @@ function validateInput(input,now=new Date()){
  if(!text(input.rosterLabel,300)||!input.rosterLabel||!Number.isInteger(input.source?.version)||!text(input.source?.salesVersion,100)||!/^\w{64}$/.test(input.source?.scores?.sha256||''))fail(400,'Source version details are required.');
  const report=incentiveReportJSON(incentiveArchiveReport(input)),totals=promoterIncentiveTotals(report.people);
  if(!report.people.length||totals.pending||totals.statusUnknown||report.unassigned||!Number.isFinite(totals.total))fail(400,'Resolve incomplete promoter computations before locking.');
+ if(report.asm&&(!report.asm.groups.length||report.asm.groups.some(g=>g.missing||!Number.isFinite(g.incentive)||g.area==='Unassigned'||g.subregion==='Unassigned')))fail(400,'Resolve incomplete ASM computations before locking.');
  if(hash(report)!==input.expectedReportHash)fail(409,'The computation changed. Review the month again before locking.');
  return {report,totals};
 }
@@ -55,7 +58,7 @@ async function createLock(req,user){
  // A newer monthly score publication must never be silently locked under an older review.
  const mr=await request('/rest/v1/evis_dataset?id=eq.1&select=version,files');if(!mr.ok)fail(502,'Could not verify score version.');const manifest=(await mr.json())[0];
  if(manifest?.version!==input.source.version||manifest?.files?.scores?.sha256!==input.source.scores.sha256)fail(409,'The model score file changed. Reload and review before locking.');
- const inputs={month:input.month,sales:input.sales,catalog:input.catalog,roster:input.roster,rosterLabel:input.rosterLabel,source:input.source};
+ const inputs={...(input.basis?{basis:input.basis}:{}),month:input.month,sales:input.sales,catalog:input.catalog,roster:input.roster,rosterLabel:input.rosterLabel,source:input.source};
  const archive={schema:1,month:input.month,lockedAt:new Date().toISOString(),lockedBy:user.username,inputs,report,totals,hash:hash({inputs,report})};
  await bucket(true);
  const r=await request('/storage/v1/object/'+BUCKET+'/'+input.month+'.json.gz',{method:'POST',headers:{'Content-Type':'application/gzip','x-upsert':'false'},body:gzipSync(JSON.stringify(archive))});

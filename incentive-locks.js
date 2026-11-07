@@ -2,7 +2,7 @@
 (()=>{
  const endpoint='/api/gateway?op=incentive-locks',archives=new Map(),pending=new Map(),overrides=new Map();
  let index=null,indexError='',saving=false,refreshing=false;
- const notify=()=>window.evisPromoterIncentives?.render();
+ const notify=()=>{window.evisPromoterIncentives?.render();window.evisAsmIncentives?.render();};
  const hash=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value))))].map(v=>v.toString(16).padStart(2,'0')).join('');
  async function request(url,options={}){const r=await fetch(url,{cache:'no-store',...options}),data=await r.json();if(!r.ok)throw new Error(data.error||'Could not load incentive archive.');return data;}
  async function refresh(){if(refreshing)return;refreshing=true;window.evisRefresh?.mark('incentive-locks');indexError='';try{index=(await request(endpoint)).months;}catch(e){index=null;indexError=e.message;}finally{refreshing=false;notify();}}
@@ -13,7 +13,7 @@
   if(!pending.has(month))pending.set(month,request(endpoint+'&month='+encodeURIComponent(month)).then(a=>archives.set(month,a)).catch(e=>pending.set(month,e)).finally(notify));
   const error=pending.get(month);return {blocked:true,message:error instanceof Error?'Locked month unavailable: '+error.message:'Loading locked computation…'};
  }
- function inputs(month,all,roster,label){
+ function inputs(month,all,roster,label,basis){
   const source=window.evisIncentiveSources?.();if(!source?.ready)throw new Error('Wait until sales and model scores finish refreshing successfully.');
   if(!roster?.entries?.length)throw new Error('An active roster is required before locking.');
   const sales=all.filter(r=>r._date&&!isNaN(r._date)&&modelMonthKey(r._date)<=month).map(r=>{
@@ -21,24 +21,25 @@
    for(const key of ['_ps','_model','_modelCode','_sid','_store','_area','_asm','_customer'])row[key]=normalize(r[key]);
    for(const [key,names] of [['PS Name',['PS Name','Promoter Name']],['SR Role',['SR Role']],['SR Hire Date',['SR Hire Date','Hire Date']],['Store Type',['Store Type']]])row[key]=normalize(find(r,...names));return row;
   });
-  return {month,sales,catalog:[...scoreCatalog.values()],roster:{entries:roster.entries},rosterLabel:label,source};
+  return {...(basis?{basis}:{}),month,sales,catalog:[...scoreCatalog.values()],roster:{entries:roster.entries},rosterLabel:label,source};
  }
  function panel(host,month,status,report,all){
   host.replaceChildren();host.className='pi-lock-panel';
   const title=document.createElement('strong'),note=document.createElement('p');host.append(title,note);
   if(status.blocked){title.textContent=status.message;const retry=document.createElement('button');retry.className='secondary-btn';retry.textContent='Retry archive';retry.onclick=()=>{pending.clear();refresh();};host.append(retry);return;}
-  if(status.locked){const a=status.archive;title.textContent=monthName(month)+' · Locked';note.textContent='Saved '+new Date(a.lockedAt).toLocaleString()+' · '+a.rosterLabel+' ('+a.rosterCount+' active in roster). All monthly sellers, including resigned promoters, are preserved. Scores, rules, assignments and model breakdowns use this saved computation.';return;}
+  if(status.locked){const a=status.archive;title.textContent=monthName(month)+' · Locked';note.textContent=(a.report.basis==='sales-sellers'?'PS and ASM locked from October sales. Employment status is not inferred; ASM deducts 100 points for sellers hired before October 1. ':'')+'Saved '+new Date(a.lockedAt).toLocaleString()+' · '+a.rosterLabel+' ('+a.rosterCount+(a.report.basis==='sales-sellers'?' October sellers':' active in roster')+'). All monthly sellers, including resigned promoters, are preserved. Scores, rules, assignments and model breakdowns use this saved computation.';return;}
   title.textContent=monthName(month)+' · Not locked';
-  const override=overrides.get(month);note.textContent=override?'Reviewing '+override.label+' · '+override.roster.entries.length+' active in roster. All monthly promoter sales, including sellers absent from the roster, are included.':'This month uses the current sales, scores and active roster.';
+  const override=overrides.get(month);note.textContent=override?'Reviewing '+override.label+' · '+override.roster.entries.length+(override.basis==='sales-sellers'?' October sellers. PS and ASM will be locked together. ASM deducts 100 points for pre-October hires; October hires and missing hire dates are exempt.':' active in roster. All monthly promoter sales, including sellers absent from the roster, are included.'):'This month uses the current sales, scores and active roster.';
   if(window.dashboardAccount?.role!=='admin'||!PROMOTER_INCENTIVE_POLICIES[month])return;
   const current=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit'}).formatToParts(new Date()),part=t=>current.find(p=>p.type===t).value;if(month>=part('year')+'-'+part('month'))return;
+  if(month==='2026-10'){const salesButton=document.createElement('button');salesButton.className='secondary-btn';salesButton.textContent='Review all October sellers (PS + ASM)';salesButton.disabled=saving;salesButton.onclick=()=>{overrides.set(month,{roster:incentiveSellerRoster(all,month),label:'October sales-based membership',basis:'sales-sellers'});notify();};host.append(salesButton);}
   const label=document.createElement('label');label.textContent='Use saved active roster (CSV) ';const file=document.createElement('input');file.type='file';file.accept='.csv';file.setAttribute('aria-label','Saved active roster for incentive lock');file.disabled=saving;label.append(file);host.append(label);
   file.onchange=async()=>{const f=file.files[0];if(!f)return;try{const roster=rosterParse(parseCSV(await f.text()));overrides.set(month,{roster,label:f.name});notify();}catch(e){note.textContent=e.message;}};
-  const button=document.createElement('button');button.className='secondary-btn';button.textContent=saving?'Saving locked computation…':'Lock reviewed month';button.disabled=saving||!window.evisIncentiveSources?.().ready||!override||promoterIncentiveTotals(report.people).pending>0;host.append(button);
+  const button=document.createElement('button');button.className='secondary-btn';button.textContent=saving?'Saving locked computation…':override?.basis==='sales-sellers'?'Lock October PS and ASM':'Lock reviewed month';button.disabled=saving||!window.evisIncentiveSources?.().ready||!override||promoterIncentiveTotals(report.people).pending>0;host.append(button);
   button.onclick=async()=>{if(saving)return;saving=true;button.disabled=true;file.disabled=true;note.textContent='Saving and verifying the full month…';try{
-   const input=inputs(month,all,override.roster,override.label),frozen=incentiveReportJSON(incentiveArchiveReport(input));input.expectedReportHash=await hash(frozen);
+   const input=inputs(month,all,override.roster,override.label,override.basis),frozen=incentiveReportJSON(incentiveArchiveReport(input));input.expectedReportHash=await hash(frozen);
    // Never save a different result from the one just reviewed in the table.
-   const reviewed=incentiveReportJSON(report);delete reviewed.cutoff;const checked={...frozen};delete checked.cutoff;
+   const reviewed=incentiveReportJSON(report);delete reviewed.cutoff;const checked=incentiveReportJSON(frozen);delete checked.cutoff;if(reviewed.asm)delete reviewed.asm.cutoff;if(checked.asm)delete checked.asm.cutoff;
    if(await hash(reviewed)!==await hash(checked))throw new Error('The source changed during review. Review the refreshed computation and try again.');
    const body=await new Response(new Blob([JSON.stringify(input)]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
    if(body.size>4000000)throw new Error('Archive is too large to save.');
