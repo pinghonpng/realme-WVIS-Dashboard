@@ -22,7 +22,9 @@ const PROMOTER_INCENTIVE_POLICIES={
  '2026-09':{bonusModels:{c100:['C100'],eol:['12PRO+','13PRO','13PRO+','14PRO','14PRO+','15PRO']},bonusTiers:{c100:[[5,800],[10,1800]],eol:[[2,600],[4,1400]]},techlifeMinimum:60,base:{EVIS:140,NEGROS:170,PANAY:170},thresholds:{Multibrand:[275,400,550],'Concept / Kiosk':[425,550,750]},multipliers:{EVIS:[22,26,32,36],NEGROS:[20,24,30,34],PANAY:[20,24,30,34]}},
  '2026-10':{calculation:'proportional-brands',realmeTargets:{smartphone:30,push:15},unitShortage:{requiredUnits:{2:30,3:40},perUnit:100},bonusModels:{push:['16T','C100']},bonusTiers:{push:[[8,1500],[12,3000]]},techlifeMinimum:60,base:{EVIS:100,NEGROS:120,PANAY:120},thresholds:{Multibrand:[225,350,475],'Concept / Kiosk':[375,500,675]},multipliers:{EVIS:[22,26,32,36],NEGROS:[20,24,28,32],PANAY:[20,24,28,32]}}
 };
+PROMOTER_INCENTIVE_POLICIES['2026-11']={...PROMOTER_INCENTIVE_POLICIES['2026-10'],realmeTargets:{smartphone:30},realmePayment:{type:'hire-date',start:'2026-11-01',end:'2026-11-30',dailyMinimum:0.85,partialMinimum:25,partialRate:0.5}};
 function promoterIncentivePolicy(month){
+ if(month==='2026-11')return PROMOTER_INCENTIVE_POLICIES[month];
  return /^\d{4}-(?:0[1-9]|1[0-2])$/.test(String(month))?PROMOTER_INCENTIVE_POLICIES['2026-10']:undefined;
 }
 function promoterIncentiveFormat(value){
@@ -46,14 +48,23 @@ function promoterIncentiveAmounts(points,area,format,c100Units,eolUnits,month,te
  const techlifeEligible=policy&&Number.isFinite(techlifePoints)?techlifePoints>=policy.techlifeMinimum:null;
  if(policy?.calculation==='proportional-brands'){
   const smartphoneUnits=units.smartphoneUnits,pushUnits=units.pushUnits;
-  const realmeEligible=Number.isFinite(smartphoneUnits)&&Number.isFinite(pushUnits)?smartphoneUnits>=policy.realmeTargets.smartphone||pushUnits>=policy.realmeTargets.push:null;
+  let realmeEligible=Number.isFinite(smartphoneUnits)&&Number.isFinite(pushUnits)?smartphoneUnits>=policy.realmeTargets.smartphone||pushUnits>=policy.realmeTargets.push:null;
+  let paymentRate=realmeEligible?1:realmeEligible===false?0:null,qualification={};
+  if(policy.realmePayment){
+   const start=productivityHireDay(policy.realmePayment.start),end=productivityHireDay(policy.realmePayment.end);
+   const recorded=Number.isFinite(units.hireDay)?units.hireDay:null,hire=recorded??start;
+   const days=hire<start?null:Math.max(0,end-hire+1);
+   paymentRate=!Number.isFinite(smartphoneUnits)?null:hire<start?(smartphoneUnits>=30?1:smartphoneUnits>=25?0.5:0):days>0&&smartphoneUnits*100>=85*days?1:0;
+   realmeEligible=paymentRate===null?null:paymentRate>0;
+   qualification={realmePaymentRate:paymentRate,hireDate:new Date(hire*86400000).toISOString().slice(0,10),hireDateAssumed:recorded===null,qualificationDays:days,dailySmartphoneAverage:days>0&&Number.isFinite(smartphoneUnits)?smartphoneUnits/days:null};
+  }
   const valid=Number.isFinite(points)&&Number.isFinite(techlifePoints)&&points>=0&&techlifePoints>=0&&techlifePoints<=points;
   const realmePoints=valid?points-techlifePoints:null;
   const poolCents=valid&&base!==null&&multiplier!==null?Math.round(Math.max(0,points-base)*multiplier*100):null;
   // Allocate the base-adjusted pool once; a failed gate never changes either brand's share.
   const realmeCents=poolCents===null?null:points===0?0:Math.round(poolCents*realmePoints/points);
   const techlifeCents=poolCents===null?null:poolCents-realmeCents;
-  const realmeBeforeDeduction=realmeEligible===null||realmeCents===null?null:realmeEligible?realmeCents/100:0;
+  const realmeBeforeDeduction=realmeEligible===null||realmeCents===null?null:realmeEligible?Math.round(realmeCents*paymentRate)/100:0;
   const shortageRequiredUnits=stars===null?null:policy.unitShortage?.requiredUnits[stars]??0;
   const shortageUnits=shortageRequiredUnits===null||!Number.isFinite(smartphoneUnits)?null:Math.max(0,shortageRequiredUnits-smartphoneUnits);
   // Only the final star tier applies, after qualification and the fixed brand split.
@@ -62,7 +73,7 @@ function promoterIncentiveAmounts(points,area,format,c100Units,eolUnits,month,te
   const techlifeCommission=techlifeEligible===null||techlifeCents===null?null:techlifeEligible?techlifeCents/100:0;
   const regular=realmeCommission===null||techlifeCommission===null?null:Math.round((realmeCommission+techlifeCommission)*100)/100;
   const push=Number.isFinite(pushUnits)?policy.bonusTiers.push.reduce((amount,[target,reward])=>pushUnits>=target?reward:amount,0):null;
-  return {base,stars,multiplier,realmeEligible,techlifeEligible,realmePoints,pool:poolCents===null?null:poolCents/100,realmeShare:realmeCents===null?null:realmeCents/100,techlifeShare:techlifeCents===null?null:techlifeCents/100,realmeBeforeDeduction,shortageRequiredUnits,shortageUnits,shortageDeduction,realmeCommission,techlifeCommission,regular,push,extra:push,total:regular===null||push===null?null:Math.round((regular+push)*100)/100};
+  return {...qualification,base,stars,multiplier,realmeEligible,techlifeEligible,realmePoints,pool:poolCents===null?null:poolCents/100,realmeShare:realmeCents===null?null:realmeCents/100,techlifeShare:techlifeCents===null?null:techlifeCents/100,realmeBeforeDeduction,shortageRequiredUnits,shortageUnits,shortageDeduction,realmeCommission,techlifeCommission,regular,push,extra:push,total:regular===null||push===null?null:Math.round((regular+push)*100)/100};
  }
  const excludedTechlife=techlifeEligible===false?techlifePoints:techlifeEligible===true?0:null;
  const paidPoints=Number.isFinite(points)&&excludedTechlife!==null?points-excludedTechlife:null;
@@ -112,6 +123,7 @@ function promoterIncentiveReport(all,roster,month){
   if(!p.format)p.issues.add('Store type needs review');if(!['EVIS','NEGROS','PANAY'].includes(p.area))p.issues.add('Area needs review');
   p.points=p.smartphone+p.realme+p.techlife+p.unclassified;
   const incomplete=p.issues.has('Missing model scores')||p.issues.has('Unmapped product / series');
+  if(promoterIncentivePolicy(month)?.realmePayment)p.hireDay=hires.get(p.key)?.day??null;
   Object.assign(p,promoterIncentiveAmounts(incomplete?NaN:p.points,p.area,p.format,p.c100Units,p.eolUnits,month,p.techlife,p));
   if(!promoterIncentivePolicy(month))p.issues.add('Monthly scheme not set');
   p.models=[...p.models.values()].sort((a,b)=>a.name.localeCompare(b.name));
