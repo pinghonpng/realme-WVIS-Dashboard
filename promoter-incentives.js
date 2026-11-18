@@ -111,10 +111,10 @@ function promoterIncentiveBreakdown(people,policy,component='total',group='serie
   report=lockState.locked?lockState.report:lockState.roster?.basis==='sales-sellers'?incentiveSalesReport(all,input.value,lockState.roster.storeTypes):promoterIncentiveReport(all,lockState.roster?.roster||window.evisRoster?.getRoster(),input.value);
   $('piStatus').disabled=report.basis==='sales-sellers';if(report.basis==='sales-sellers')$('piStatus').value='all';
   locks.panel($('piLock'),input.value,lockState,report,all);renderSchemeBanner(input.value);
-  section.querySelector('.pi-rules').hidden=lockState.locked||input.value!=='2026-09';
+  section.querySelector('.pi-rules').hidden=true;
   options('piArea',report.people.map(p=>p.area));options('piSubregion',report.people.map(p=>p.subregion));options('piDealer',report.people.map(p=>p.dealer));
   const hasSales=Number.isFinite(report.cutoff),date=hasSales?new Date(report.cutoff).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}):'no sales date';
-  $('piPeriod').textContent=monthName(input.value)+(lockState.locked?' · Locked':'')+(hasSales?' · through '+date:' · Awaiting sales data')+' · All three product categories combined. Click an incentive amount or promoter for its series / model contribution and calculation.';
+  $('piPeriod').textContent=monthName(input.value)+(lockState.locked?' · Locked':'')+(hasSales?' · through '+date:' · Awaiting sales data')+(lockState.locked?'':' · Uses October incentive rules')+' · All three product categories combined. Click an incentive amount or promoter for its series / model contribution and calculation.';
   if(section.classList.contains('active'))$('periodLabel').textContent=monthName(input.value)+(hasSales?(lockState.locked?' · locked incentives through ':' · running incentives through ')+date:' · Awaiting sales data');
   if(popup.open)popup.close();draw();
  }

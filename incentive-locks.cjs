@@ -1,7 +1,7 @@
 // Private, immutable monthly incentive archives. Never exposed as public assets.
 const {gzipSync,gunzipSync}=require('node:zlib');
 const {createHash}=require('node:crypto');
-const {PROMOTER_INCENTIVE_POLICIES,incentiveArchiveReport,incentiveReportJSON,promoterIncentiveTotals}=require('./incentive-core.js');
+const {promoterIncentivePolicy,incentiveArchiveReport,incentiveReportJSON,promoterIncentiveTotals}=require('./incentive-core.js');
 const BUCKET='wvis-incentive-locks',SB='https://fuvlhwoauzvgrbakihsj.supabase.co';
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -35,7 +35,7 @@ function validateInput(input,now=new Date()){
  if(input?.basis!==undefined&&input.basis!=='sales-sellers')fail(400,'Invalid archive basis.');
  if(input?.storeTypes!==undefined&&(!input.storeTypes||Array.isArray(input.storeTypes)||typeof input.storeTypes!=='object'||Object.entries(input.storeTypes).length>1000||Object.entries(input.storeTypes).some(([k,v])=>!k||k.length>1000||!['Multibrand','Exclusive','Concept','Kiosk'].includes(v))))fail(400,'Invalid confirmed store classifications.');
  if(input?.basis==='sales-sellers'&&input.month!=='2026-10')fail(400,'Sales-based closure is approved for October 2026 only.');
- if(!input||!validMonth(input.month)||!PROMOTER_INCENTIVE_POLICIES[input.month])fail(400,'This month needs its own approved incentive scheme.');
+ if(!input||!validMonth(input.month)||!promoterIncentivePolicy(input.month))fail(400,'This month needs its own approved incentive scheme.');
  const currentMonth=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit'}).formatToParts(now),part=t=>currentMonth.find(p=>p.type===t).value;
  if(input.month>=part('year')+'-'+part('month'))fail(400,'Only completed months can be locked.');
  if(!Array.isArray(input.sales)||!input.sales.length||input.sales.length>250000||!Array.isArray(input.catalog)||!input.catalog.length||input.catalog.length>10000||!Array.isArray(input.roster?.entries)||!input.roster.entries.length||input.roster.entries.length>10000)fail(400,'Complete sales, scores and an active roster are required.');

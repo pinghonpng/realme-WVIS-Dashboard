@@ -17,11 +17,14 @@ function productivityHireDay(value){
 }
 
 function modelMonthKey(date){return !date||isNaN(date)?'':date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0');}
-// Each month has its own approved policy. Saved archives retain their original policy and results.
+// October rules are the default for every unlocked month. Archives restore saved results unchanged.
 const PROMOTER_INCENTIVE_POLICIES={
  '2026-09':{bonusModels:{c100:['C100'],eol:['12PRO+','13PRO','13PRO+','14PRO','14PRO+','15PRO']},bonusTiers:{c100:[[5,800],[10,1800]],eol:[[2,600],[4,1400]]},techlifeMinimum:60,base:{EVIS:140,NEGROS:170,PANAY:170},thresholds:{Multibrand:[275,400,550],'Concept / Kiosk':[425,550,750]},multipliers:{EVIS:[22,26,32,36],NEGROS:[20,24,30,34],PANAY:[20,24,30,34]}},
  '2026-10':{calculation:'proportional-brands',realmeTargets:{smartphone:30,push:15},unitShortage:{requiredUnits:{2:30,3:40},perUnit:100},bonusModels:{push:['16T','C100']},bonusTiers:{push:[[8,1500],[12,3000]]},techlifeMinimum:60,base:{EVIS:100,NEGROS:120,PANAY:120},thresholds:{Multibrand:[225,350,475],'Concept / Kiosk':[375,500,675]},multipliers:{EVIS:[22,26,32,36],NEGROS:[20,24,28,32],PANAY:[20,24,28,32]}}
 };
+function promoterIncentivePolicy(month){
+ return /^\d{4}-(?:0[1-9]|1[0-2])$/.test(String(month))?PROMOTER_INCENTIVE_POLICIES['2026-10']:undefined;
+}
 function promoterIncentiveFormat(value){
  const s=normalize(value).toLowerCase().replace(/[\s_-]+/g,' ');
  if(/^(?:multi ?brand|exclusive)(?: store)?$/.test(s))return 'Multibrand';
@@ -31,13 +34,13 @@ function promoterIncentiveFormat(value){
 function promoterIncentiveBonusModel(code,month='2026-09'){
  const s=normalize(code).toUpperCase();if(!/^HP[.\s]/.test(s))return '';
  const model=s.replace(/^HP[.\s]+/,'').split('(')[0].replace(/\b[45]G\b/g,'').replace(/\s/g,'');
- const models=PROMOTER_INCENTIVE_POLICIES[month]?.bonusModels;if(!models)return '';
+ const models=promoterIncentivePolicy(month)?.bonusModels;if(!models)return '';
  if(models.push?.includes(model)&&(model!=='C100'||!/5G/.test(s)))return 'push';
  if(models.c100?.includes(model)&&!/5G/.test(s))return 'c100';
  return models.eol?.includes(model)?'eol':'';
 }
 function promoterIncentiveAmounts(points,area,format,c100Units,eolUnits,month,techlifePoints=0,units={}){
- const policy=PROMOTER_INCENTIVE_POLICIES[month],base=policy?.base[area]??null,thresholds=policy?.thresholds[format];
+ const policy=promoterIncentivePolicy(month),base=policy?.base[area]??null,thresholds=policy?.thresholds[format];
  const stars=Number.isFinite(points)&&thresholds?thresholds.filter(t=>points>=t).length:null;
  const multiplier=stars!==null?policy?.multipliers[area]?.[stars]??null:null;
  const techlifeEligible=policy&&Number.isFinite(techlifePoints)?techlifePoints>=policy.techlifeMinimum:null;
@@ -70,7 +73,7 @@ function promoterIncentiveAmounts(points,area,format,c100Units,eolUnits,month,te
  return {base,stars,multiplier,techlifeEligible,excludedTechlife,paidPoints,regular,c100,eol,extra:policy?c100+eol:null,total:regular===null?null:regular+c100+eol};
 }
 function promoterIncentiveReport(all,roster,month){
- const proportional=PROMOTER_INCENTIVE_POLICIES[month]?.calculation==='proportional-brands';
+ const proportional=promoterIncentivePolicy(month)?.calculation==='proportional-brands';
  const period=all.filter(r=>modelMonthKey(r._date)===month),cutoff=period.reduce((d,r)=>Math.max(d,+r._date),-Infinity);
  const history=all.filter(r=>r._date&&!isNaN(r._date)&&+r._date<=cutoff),entries=roster?.entries||[];
  const ids=new Map(entries.filter(e=>e.id).map(e=>[rosterCode(e.id),e])),names=new Map(entries.map(e=>[rosterName(e.name),e]));
@@ -110,10 +113,10 @@ function promoterIncentiveReport(all,roster,month){
   p.points=p.smartphone+p.realme+p.techlife+p.unclassified;
   const incomplete=p.issues.has('Missing model scores')||p.issues.has('Unmapped product / series');
   Object.assign(p,promoterIncentiveAmounts(incomplete?NaN:p.points,p.area,p.format,p.c100Units,p.eolUnits,month,p.techlife,p));
-  if(!PROMOTER_INCENTIVE_POLICIES[month])p.issues.add('Monthly scheme not set');
+  if(!promoterIncentivePolicy(month))p.issues.add('Monthly scheme not set');
   p.models=[...p.models.values()].sort((a,b)=>a.name.localeCompare(b.name));
  }
- return {people:[...people.values()].sort((a,b)=>(b.total??-Infinity)-(a.total??-Infinity)||a.name.localeCompare(b.name)),cutoff,excluded,unassigned,policy:PROMOTER_INCENTIVE_POLICIES[month]};
+ return {people:[...people.values()].sort((a,b)=>(b.total??-Infinity)-(a.total??-Infinity)||a.name.localeCompare(b.name)),cutoff,excluded,unassigned,policy:promoterIncentivePolicy(month)};
 }
 function promoterIncentiveTotals(people){
  const recipients=people.filter(p=>Number.isFinite(p.total)&&p.total>0);
@@ -202,6 +205,6 @@ function incentiveArchiveReport(input){
 function incentiveReportJSON(report){return JSON.parse(JSON.stringify(report,(key,value)=>value instanceof Set?[...value]:value));}
 function incentiveReportRestore(report){return {...report,people:report.people.map(p=>({...p,issues:new Set(p.issues)}))};}
 
-const api={incentiveSellerRoster,incentiveSalesReport,incentiveArchiveReport,incentiveReportJSON,incentiveReportRestore,PROMOTER_INCENTIVE_POLICIES,promoterIncentiveFormat,promoterIncentiveBonusModel,promoterIncentiveAmounts,promoterIncentiveReport,promoterIncentiveTotals};
+const api={promoterIncentivePolicy,incentiveSellerRoster,incentiveSalesReport,incentiveArchiveReport,incentiveReportJSON,incentiveReportRestore,PROMOTER_INCENTIVE_POLICIES,promoterIncentiveFormat,promoterIncentiveBonusModel,promoterIncentiveAmounts,promoterIncentiveReport,promoterIncentiveTotals};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else Object.assign(window,api);
 })();
